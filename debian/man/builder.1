@@ -1,0 +1,86 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.de Vb \" Begin verbatim text
+.ft CW
+.nf
+.ne \\$1
+..
+.de Ve \" End verbatim text
+.ft R
+.fi
+..
+.TH BUILDER 1 "2013-12-02"
+.\" Please adjust this date whenever revising the manpage.
+.SH NAME
+builder \- Go continuous build client
+.SH SYNOPSIS
+.B builder
+.RI [ flags ]
+.IR goos-goarch...
+.SH DESCRIPTION
+
+If you wish to run a Go builder, please email golang-dev@googlegroups.com
+
+To run a builder:
+
+* Write the key ~gobuild/.gobuildkey 
+  You need to get it from someone who knows the key.
+  You may also use a filename of the form .gobuildkey-$BUILDER if you
+  wish to run builders for multiple targets.
+
+* Append your username and password googlecode.com credentials from
+    https://code.google.com/hosting/settings
+  to the buildkey file in the format "Username\\nPassword\\n".
+  (This is for uploading tarballs to the project downloads section,
+   and is an optional step.)
+
+* Run gobuilder
+
+.SH OPTIONS
+
+.TP
+.B \-buildTimeout
+Maximum time to wait for builds and tests
+.TP
+.B \-buildroot
+Directory under which to build
+.TP
+.B \-cmd
+Build command (specify relative to go/src/)
+.TP
+.B \-cmdTimeout
+Maximum time to wait for an external command
+.TP
+.B \-commitInterval
+Time to wait between polling for new commits (0 disables commit poller)
+.TP
+.B \-dashboard
+Go Dashboard Host
+.TP
+.B \-fail
+fail all builds
+.TP
+.B \-gccpath
+Path to download gcc from
+.TP
+.B \-gcpath
+Path to download gc from
+.TP
+.B \-parallel
+Build multiple targets in parallel
+.TP
+.B \-release
+Build and upload binary release archives
+.TP
+.B \-rev
+Build specified revision and exit
+.TP
+.B \-tool
+Tool to build.
+.TP
+.B \-v
+verbose
+
+.SH AUTHOR
+.PP
+This manual page was written by Michael Stapelberg <stapelberg@debian.org>,
+for the Debian project (and may be used by others).

@@ -1,0 +1,86 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.de Vb \" Begin verbatim text
+.ft CW
+.nf
+.ne \\$1
+..
+.de Ve \" End verbatim text
+.ft R
+.fi
+..
+.TH ORACLE 1 "2013-12-02"
+.\" Please adjust this date whenever revising the manpage.
+.SH NAME
+oracle \- a tool for answering questions about Go source code
+.SH SYNOPSIS
+.B oracle
+.RI [
+.IR "flag ..."
+.RI ]
+.RI mode
+.IR "args ..."
+.SH DESCRIPTION
+
+The -format flag controls the output format:
+.Vb 6
+\&      plain	an editor-friendly format in which every line of output
+\&      		is of the form "pos: text", where pos is "-" if unknown.
+\&      json	structured data in JSON syntax.
+\&      xml		structured data in XML syntax.
+.Ve
+
+The -pos flag is required in all modes except 'callgraph'.
+
+The mode argument determines the query to perform:
+
+.Vb 6
+\&      callees	  	show possible targets of selected function call
+\&      callers	  	show possible callers of selected function
+\&      callgraph 	show complete callgraph of program
+\&      callstack 	show path from callgraph root to selected function
+\&      describe  	describe selected syntax: definition, methods, etc
+\&      freevars  	show free variables of selection
+\&      implements	show 'implements' relation for selected package
+\&      peers     	show send/receive corresponding to selected channel op
+\&      referrers 	show all refs to entity denoted by selected identifier
+.Ve
+
+The user manual is available here:  http://golang.org/s/oracle-user-manual
+
+.SH OPTIONS
+
+.TP
+.B \-cpuprofile
+write cpu profile to file
+.TP
+.B \-format
+Output format.  One of {plain,json,xml}.
+.TP
+.B \-pos
+Filename and byte offset or extent of a syntax element about which to query, e.g. foo.go:#123,#456, bar.go:#123.
+.TP
+.B \-ptalog
+Location of the points-to analysis log file, or empty to disable logging.
+.TP
+.B \-reflect
+Analyze reflection soundly (slow).
+
+.SH EXAMPLES
+
+Describe the syntax at offset 530 in this file (an import spec):
+
+.Vb 6
+\&      oracle -pos=src/code.google.com/p/go.tools/cmd/oracle/main.go:#530 describe
+\&      code.google.com/p/go.tools/cmd/oracle
+.Ve
+
+Print the callgraph of the trivial web-server in JSON format:
+
+.Vb 6
+\&      oracle -format=json src/pkg/net/http/triv.go callgraph
+.Ve
+
+.SH AUTHOR
+.PP
+This manual page was written by Michael Stapelberg <stapelberg@debian.org>,
+for the Debian project (and may be used by others).

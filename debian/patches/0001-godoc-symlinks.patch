@@ -1,0 +1,24 @@
+--- i/godoc/vfs/os.go
++++ w/godoc/vfs/os.go
+@@ -59,5 +59,20 @@ func (root osFS) Stat(path string) (os.FileInfo, error) {
+ }
+ 
+ func (root osFS) ReadDir(path string) ([]os.FileInfo, error) {
+-	return ioutil.ReadDir(root.resolve(path)) // is sorted
++	dirName := root.resolve(path)
++	fis, err := ioutil.ReadDir(dirName) // is sorted
++	if err != nil {
++		return nil, err
++	}
++	// Replace symlinks with what they are pointing to
++	for i, fi := range fis {
++		if fi.Mode()&os.ModeSymlink != 0 {
++			fi, err = os.Stat(filepath.Join(dirName, fi.Name()))
++			if err != nil {
++				return nil, err
++			}
++		}
++		fis[i] = fi
++	}
++	return fis, nil
+ }

@@ -1,0 +1,5 @@
+golang-go.tools (0.0~hg20131126-1) unstable; urgency=low
+
+  * Initial upload (Closes: #731046)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 02 Dec 2013 22:17:08 +0100

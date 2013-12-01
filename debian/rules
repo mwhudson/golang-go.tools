@@ -1,0 +1,60 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+export DH_VERBOSE=1
+
+export DH_GOPKG := code.google.com/p/go.tools
+
+# Install all files into the build GOPATH, not only .go files.
+# This is necessary because go.tools contains golden files that are necessary
+# for running the testsuite.
+export DH_GOLANG_INSTALL_ALL := 1
+
+# go.tools installs into $GOROOT, so create a temporary $GOROOT into which it
+# is actually allowed to write (as opposed to /usr/lib/go).
+export GOROOT_FINAL := /usr/lib/go
+export GOROOT = $(CURDIR)/temproot
+
+override_dh_auto_build:
+	mkdir -p $(CURDIR)/temproot
+	# We need a writable copy of pkg, go.tools installs into that.
+	cp -ar /usr/lib/go/pkg $(CURDIR)/temproot/pkg
+	ln -s /usr/lib/go/src $(CURDIR)/temproot/src
+	ln -s /usr/share/go/test $(CURDIR)/temproot/test
+	echo "listing:"
+	ls -hlR $(CURDIR)
+	dh_auto_build $@
+
+override_dh_auto_install:
+	dh_auto_install $@
+	# Install all binaries from bin/ and pkg/ to /usr/bin/ and
+	# /usr/lib/go/pkg, respectively.
+	echo "listing CURDIR=$(CURDIR):"
+	ls -hlR $(CURDIR)
+	(cd $(CURDIR)/temproot/bin; \
+	 for file in $$(find . -type f -newer $$(find $(CURDIR)/temproot/pkg/tool/ -name "fix")); do \
+		mkdir -p $(CURDIR)/debian/tmp/usr/bin/$$(dirname $$file); \
+		install $$file $(CURDIR)/debian/tmp/usr/bin/$$file; \
+	done)
+	(cd $(CURDIR)/temproot/pkg; \
+	 for file in $$(find . -type f -newer $$(find $(CURDIR)/temproot/pkg/tool/ -name "fix")); do \
+		mkdir -p $(CURDIR)/debian/tmp/usr/lib/go/pkg/$$(dirname $$file); \
+		install $$file $(CURDIR)/debian/tmp/usr/lib/go/pkg/$$file; \
+	done)
+	# Remove extra LICENSE file, which is installed because we run with DH_GOLANG_INSTALL_ALL=1.
+	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/LICENSE
+	# Make scripts executable.
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/cmd/godoc/setup-godoc-app.bash
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/cmd/oracle/emacs-test.bash
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/bake.sh
+	# Replace embedded copy of jquery with a symlink.
+	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/jquery.js && \
+	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/jquery.js
+
+%:
+	dh $@ --buildsystem=golang --with=golang
