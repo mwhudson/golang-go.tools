@@ -1,3 +1,9 @@
+golang-go.tools (0.0~hg20131126-2) unstable; urgency=low
+
+  * Fix Breaks/Replaces field (Closes: #731498)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 06 Dec 2013 08:24:44 +0100
+
 golang-go.tools (0.0~hg20131126-1) unstable; urgency=low
 
   * Initial upload (Closes: #731046)

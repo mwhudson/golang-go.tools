@@ -12,7 +12,8 @@ Package: golang-go.tools
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, libjs-jquery
 Built-Using: ${misc:Built-Using}
-Breaks: golang-go (<< 1.2)
+Breaks: golang-go (<< 2:1.2)
+Replaces: golang-go (<< 2:1.2)
 Description: supplementary Go tools
  This subrepository holds the source for various packages and tools that
  support the Go programming language.
