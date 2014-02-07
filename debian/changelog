@@ -1,3 +1,10 @@
+golang-go.tools (0.0~hg20131126-3) unstable; urgency=low
+
+  * Add patch 0002-skip-online-tests.patch (Thanks James Page)
+    (Closes: #737985)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 07 Feb 2014 21:27:37 +0100
+
 golang-go.tools (0.0~hg20131126-2) unstable; urgency=low
 
   * Fix Breaks/Replaces field (Closes: #731498)
