@@ -10,18 +10,19 @@ import (
 	"go/token"
 	"sort"
 
+	"code.google.com/p/go.tools/go/ssa"
+	"code.google.com/p/go.tools/go/ssa/ssautil"
 	"code.google.com/p/go.tools/go/types"
 	"code.google.com/p/go.tools/oracle/serial"
-	"code.google.com/p/go.tools/pointer"
-	"code.google.com/p/go.tools/ssa"
 )
 
 // peers enumerates, for a given channel send (or receive) operation,
 // the set of possible receives (or sends) that correspond to it.
 //
-// TODO(adonovan): support reflect.{Select,Recv,Send}.
+// TODO(adonovan): support reflect.{Select,Recv,Send,Close}.
 // TODO(adonovan): permit the user to query based on a MakeChan (not send/recv),
 // or the implicit receive in "for v := range ch".
+// TODO(adonovan): support "close" as a channel op.
 //
 func peers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	arrowPos := findArrow(qpos)
@@ -36,7 +37,7 @@ func peers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 
 	// Look at all send/receive instructions in the whole ssa.Program.
 	// Build a list of those of same type to query.
-	allFuncs := ssa.AllFunctions(o.prog)
+	allFuncs := ssautil.AllFunctions(o.prog)
 	for fn := range allFuncs {
 		for _, b := range fn.Blocks {
 			for _, instr := range b.Instrs {
@@ -59,11 +60,11 @@ func peers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	// ignore both directionality and type names.
 	queryType := queryOp.ch.Type()
 	queryElemType := queryType.Underlying().(*types.Chan).Elem()
-	channels := map[ssa.Value]pointer.Indirect{queryOp.ch: false}
+	o.ptaConfig.AddQuery(queryOp.ch)
 	i := 0
 	for _, op := range ops {
-		if types.IsIdentical(op.ch.Type().Underlying().(*types.Chan).Elem(), queryElemType) {
-			channels[op.ch] = false
+		if types.Identical(op.ch.Type().Underlying().(*types.Chan).Elem(), queryElemType) {
+			o.ptaConfig.AddQuery(op.ch)
 			ops[i] = op
 			i++
 		}
@@ -71,15 +72,14 @@ func peers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	ops = ops[:i]
 
 	// Run the pointer analysis.
-	o.config.Queries = channels
 	ptares := ptrAnalysis(o)
 
-	// Combine the PT sets from all contexts.
-	queryChanPts := pointer.PointsToCombined(ptares.Queries[queryOp.ch])
+	// Find the points-to set.
+	queryChanPtr := ptares.Queries[queryOp.ch]
 
 	// Ascertain which make(chan) labels the query's channel can alias.
 	var makes []token.Pos
-	for _, label := range queryChanPts.Labels() {
+	for _, label := range queryChanPtr.PointsTo().Labels() {
 		makes = append(makes, label.Pos())
 	}
 	sort.Sort(byPos(makes))
@@ -87,13 +87,11 @@ func peers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	// Ascertain which send/receive operations can alias the same make(chan) labels.
 	var sends, receives []token.Pos
 	for _, op := range ops {
-		for _, ptr := range ptares.Queries[op.ch] {
-			if ptr != nil && ptr.PointsTo().Intersects(queryChanPts) {
-				if op.dir == ast.SEND {
-					sends = append(sends, op.pos)
-				} else {
-					receives = append(receives, op.pos)
-				}
+		if ptr, ok := ptares.Queries[op.ch]; ok && ptr.MayAlias(queryChanPtr) {
+			if op.dir == types.SendOnly {
+				sends = append(sends, op.pos)
+			} else {
+				receives = append(receives, op.pos)
 			}
 		}
 	}
@@ -129,21 +127,21 @@ func findArrow(qpos *QueryPos) token.Pos {
 // chanOp abstracts an ssa.Send, ssa.Unop(ARROW), or a SelectState.
 type chanOp struct {
 	ch  ssa.Value
-	dir ast.ChanDir
+	dir types.ChanDir // SendOnly or RecvOnly
 	pos token.Pos
 }
 
 // chanOps returns a slice of all the channel operations in the instruction.
 func chanOps(instr ssa.Instruction) []chanOp {
-	// TODO(adonovan): handle calls to reflect.{Select,Recv,Send} too.
+	// TODO(adonovan): handle calls to reflect.{Select,Recv,Send,Close} too.
 	var ops []chanOp
 	switch instr := instr.(type) {
 	case *ssa.UnOp:
 		if instr.Op == token.ARROW {
-			ops = append(ops, chanOp{instr.X, ast.RECV, instr.Pos()})
+			ops = append(ops, chanOp{instr.X, types.RecvOnly, instr.Pos()})
 		}
 	case *ssa.Send:
-		ops = append(ops, chanOp{instr.Chan, ast.SEND, instr.Pos()})
+		ops = append(ops, chanOp{instr.Chan, types.SendOnly, instr.Pos()})
 	case *ssa.Select:
 		for _, st := range instr.States {
 			ops = append(ops, chanOp{st.Chan, st.Dir, st.Pos})
@@ -155,7 +153,7 @@ func chanOps(instr ssa.Instruction) []chanOp {
 type peersResult struct {
 	queryPos               token.Pos   // of queried '<-' token
 	queryType              types.Type  // type of queried channel
-	makes, sends, receives []token.Pos // positions of alisaed makechan/send/receive instrs
+	makes, sends, receives []token.Pos // positions of aliased makechan/send/receive instrs
 }
 
 func (r *peersResult) display(printf printfFunc) {

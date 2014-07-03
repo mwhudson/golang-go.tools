@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"go/ast"
 	"go/build"
 	"go/token"
 	"io"
@@ -348,7 +347,7 @@ func (p *parser) getPkg(id, name string) *types.Package {
 	}
 	pkg := p.imports[id]
 	if pkg == nil && name != "" {
-		pkg = types.NewPackage(id, name, types.NewScope(nil))
+		pkg = types.NewPackage(id, name)
 		p.imports[id] = pkg
 	}
 	return pkg
@@ -435,7 +434,7 @@ func (p *parser) parseName(materializePkg bool) (pkg *types.Package, name string
 			// doesn't exist yet, create a fake package instead
 			pkg = p.getPkg(id, "")
 			if pkg == nil {
-				pkg = types.NewPackage(id, "", nil)
+				pkg = types.NewPackage(id, "")
 			}
 		}
 	default:
@@ -464,9 +463,7 @@ func (p *parser) parseField() (*types.Var, string) {
 			pkg = nil
 			name = typ.Name()
 		case *types.Named:
-			obj := typ.Obj()
-			pkg = obj.Pkg() // TODO(gri) is this still correct?
-			name = obj.Name()
+			name = typ.Obj().Name()
 		default:
 			p.errorf("anonymous field expected")
 		}
@@ -474,7 +471,12 @@ func (p *parser) parseField() (*types.Var, string) {
 	}
 	tag := ""
 	if p.tok == scanner.String {
-		tag = p.expect(scanner.String)
+		s := p.expect(scanner.String)
+		var err error
+		tag, err = strconv.Unquote(s)
+		if err != nil {
+			p.errorf("invalid struct tag %s: %s", s, err)
+		}
 	}
 	return types.NewField(token.NoPos, pkg, name, typ, anonymous), tag
 }
@@ -488,7 +490,7 @@ func (p *parser) parseStructType() types.Type {
 
 	p.expectKeyword("struct")
 	p.expect('{')
-	for i := 0; p.tok != '}'; i++ {
+	for i := 0; p.tok != '}' && p.tok != scanner.EOF; i++ {
 		if i > 0 {
 			p.expect(';')
 		}
@@ -510,8 +512,9 @@ func (p *parser) parseStructType() types.Type {
 //
 func (p *parser) parseParameter() (par *types.Var, isVariadic bool) {
 	_, name := p.parseName(false)
-	if name == "" {
-		name = "_" // cannot access unnamed identifiers
+	// remove gc-specific parameter numbering
+	if i := strings.Index(name, "·"); i >= 0 {
+		name = name[:i]
 	}
 	if p.tok == '.' {
 		p.expectSpecial("...")
@@ -535,7 +538,7 @@ func (p *parser) parseParameter() (par *types.Var, isVariadic bool) {
 //
 func (p *parser) parseParameters() (list []*types.Var, isVariadic bool) {
 	p.expect('(')
-	for p.tok != ')' {
+	for p.tok != ')' && p.tok != scanner.EOF {
 		if len(list) > 0 {
 			p.expect(',')
 		}
@@ -585,7 +588,7 @@ func (p *parser) parseInterfaceType() types.Type {
 
 	p.expectKeyword("interface")
 	p.expect('{')
-	for i := 0; p.tok != '}'; i++ {
+	for i := 0; p.tok != '}' && p.tok != scanner.EOF; i++ {
 		if i > 0 {
 			p.expect(';')
 		}
@@ -601,17 +604,17 @@ func (p *parser) parseInterfaceType() types.Type {
 // ChanType = ( "chan" [ "<-" ] | "<-" "chan" ) Type .
 //
 func (p *parser) parseChanType() types.Type {
-	dir := ast.SEND | ast.RECV
+	dir := types.SendRecv
 	if p.tok == scanner.Ident {
 		p.expectKeyword("chan")
 		if p.tok == '<' {
 			p.expectSpecial("<-")
-			dir = ast.SEND
+			dir = types.SendOnly
 		}
 	} else {
 		p.expectSpecial("<-")
 		p.expectKeyword("chan")
-		dir = ast.RECV
+		dir = types.RecvOnly
 	}
 	elem := p.parseType()
 	return types.NewChan(dir, elem)
@@ -872,8 +875,11 @@ func (p *parser) parseMethodDecl() {
 	base := deref(recv.Type()).(*types.Named)
 
 	// parse method name, signature, and possibly inlined body
-	pkg, name := p.parseName(true)
+	_, name := p.parseName(true)
 	sig := p.parseFunc(recv)
+
+	// methods always belong to the same package as the base type object
+	pkg := base.Obj().Pkg()
 
 	// add method to type unless type was imported before
 	// and method exists already
