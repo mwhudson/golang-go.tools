@@ -26,6 +26,7 @@ override_dh_auto_build:
 	cp -ar /usr/lib/go/pkg $(CURDIR)/temproot/pkg
 	ln -s /usr/lib/go/src $(CURDIR)/temproot/src
 	ln -s /usr/share/go/test $(CURDIR)/temproot/test
+	ln -s /usr/share/doc/golang-doc/html $(CURDIR)/temproot/doc
 	echo "listing:"
 	ls -hlR $(CURDIR)
 	dh_auto_build $@

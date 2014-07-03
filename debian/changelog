@@ -1,3 +1,10 @@
+golang-go.tools (0.0~hg20140703-1) unstable; urgency=medium
+
+  * Import new upstream version (release-branch.go1.3). The old version broke
+    with go 1.3 (Closes: #753185)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 03 Jul 2014 18:52:34 +0200
+
 golang-go.tools (0.0~hg20131126-3) unstable; urgency=low
 
   * Add patch 0002-skip-online-tests.patch (Thanks James Page)
