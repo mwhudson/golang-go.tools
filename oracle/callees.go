@@ -10,16 +10,13 @@ import (
 	"go/token"
 	"sort"
 
+	"code.google.com/p/go.tools/go/ssa"
 	"code.google.com/p/go.tools/go/types"
 	"code.google.com/p/go.tools/oracle/serial"
-	"code.google.com/p/go.tools/ssa"
 )
 
 // Callees reports the possible callees of the function call site
 // identified by the specified source location.
-//
-// TODO(adonovan): if a callee is a wrapper, show the callee's callee.
-//
 func callees(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	pkg := o.prog.Package(qpos.info.Pkg)
 	if pkg == nil {
@@ -60,49 +57,71 @@ func callees(o *Oracle, qpos *QueryPos) (queryResult, error) {
 		return nil, fmt.Errorf("no SSA function built for this location (dead code?)")
 	}
 
-	o.config.BuildCallGraph = true
-	callgraph := ptrAnalysis(o).CallGraph
-
-	// Find the call site and all edges from it.
-	var site ssa.CallInstruction
-	calleesMap := make(map[*ssa.Function]bool)
-	for _, n := range callgraph.Nodes() {
-		if n.Func() == callerFn {
-			if site == nil {
-				// First node for callerFn: identify the site.
-				for _, s := range n.Sites() {
-					if s.Pos() == e.Lparen {
-						site = s
-						break
-					}
-				}
-				if site == nil {
-					return nil, fmt.Errorf("this call site is unreachable in this analysis")
-				}
-			}
-
-			for _, edge := range n.Edges() {
-				if edge.Site == site {
-					calleesMap[edge.Callee.Func()] = true
-				}
-			}
-		}
-	}
-	if site == nil {
-		return nil, fmt.Errorf("this function is unreachable in this analysis")
+	// Find the call site.
+	site, err := findCallSite(callerFn, e.Lparen)
+	if err != nil {
+		return nil, err
 	}
 
-	// Discard context, de-duplicate and sort.
-	funcs := make([]*ssa.Function, 0, len(calleesMap))
-	for f := range calleesMap {
-		funcs = append(funcs, f)
+	funcs, err := findCallees(o, site)
+	if err != nil {
+		return nil, err
 	}
-	sort.Sort(byFuncPos(funcs))
 
 	return &calleesResult{
 		site:  site,
 		funcs: funcs,
 	}, nil
+}
+
+func findCallSite(fn *ssa.Function, lparen token.Pos) (ssa.CallInstruction, error) {
+	for _, b := range fn.Blocks {
+		for _, instr := range b.Instrs {
+			if site, ok := instr.(ssa.CallInstruction); ok && instr.Pos() == lparen {
+				return site, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("this call site is unreachable in this analysis")
+}
+
+func findCallees(o *Oracle, site ssa.CallInstruction) ([]*ssa.Function, error) {
+	// Avoid running the pointer analysis for static calls.
+	if callee := site.Common().StaticCallee(); callee != nil {
+		switch callee.String() {
+		case "runtime.SetFinalizer", "(reflect.Value).Call":
+			// The PTA treats calls to these intrinsics as dynamic.
+			// TODO(adonovan): avoid reliance on PTA internals.
+
+		default:
+			return []*ssa.Function{callee}, nil // singleton
+		}
+	}
+
+	// Dynamic call: use pointer analysis.
+	o.ptaConfig.BuildCallGraph = true
+	cg := ptrAnalysis(o).CallGraph
+	cg.DeleteSyntheticNodes()
+
+	// Find all call edges from the site.
+	n := cg.Nodes[site.Parent()]
+	if n == nil {
+		return nil, fmt.Errorf("this call site is unreachable in this analysis")
+	}
+	calleesMap := make(map[*ssa.Function]bool)
+	for _, edge := range n.Out {
+		if edge.Site == site {
+			calleesMap[edge.Callee.Func] = true
+		}
+	}
+
+	// De-duplicate and sort.
+	funcs := make([]*ssa.Function, 0, len(calleesMap))
+	for f := range calleesMap {
+		funcs = append(funcs, f)
+	}
+	sort.Sort(byFuncPos(funcs))
+	return funcs, nil
 }
 
 type calleesResult struct {

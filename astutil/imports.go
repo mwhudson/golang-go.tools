@@ -6,26 +6,32 @@
 package astutil
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
 	"go/ast"
+	"go/format"
+	"go/parser"
 	"go/token"
+	"log"
 	"path"
 	"strconv"
 	"strings"
 )
 
 // AddImport adds the import path to the file f, if absent.
-func AddImport(f *ast.File, ipath string) (added bool) {
-	return AddNamedImport(f, "", ipath)
+func AddImport(fset *token.FileSet, f *ast.File, ipath string) (added bool) {
+	return AddNamedImport(fset, f, "", ipath)
 }
 
 // AddNamedImport adds the import path to the file f, if absent.
 // If name is not empty, it is used to rename the import.
 //
 // For example, calling
-//	AddNamedImport(f, "pathpkg", "path")
+//	AddNamedImport(fset, f, "pathpkg", "path")
 // adds
 //	import pathpkg "path"
-func AddNamedImport(f *ast.File, name, ipath string) (added bool) {
+func AddNamedImport(fset *token.FileSet, f *ast.File, name, ipath string) (added bool) {
 	if imports(f, ipath) {
 		return false
 	}
@@ -46,10 +52,12 @@ func AddNamedImport(f *ast.File, name, ipath string) (added bool) {
 		lastImport = -1
 		impDecl    *ast.GenDecl
 		impIndex   = -1
+		hasImports = false
 	)
 	for i, decl := range f.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if ok && gen.Tok == token.IMPORT {
+			hasImports = true
 			lastImport = i
 			// Do not add to import "C", to avoid disrupting the
 			// association with its doc comment, breaking cgo.
@@ -72,6 +80,18 @@ func AddNamedImport(f *ast.File, name, ipath string) (added bool) {
 
 	// If no import decl found, add one after the last import.
 	if impDecl == nil {
+		// TODO(bradfitz): remove this hack. See comment below on
+		// addImportViaSourceModification.
+		if !hasImports {
+			f2, err := addImportViaSourceModification(fset, f, name, ipath)
+			if err == nil {
+				*f = *f2
+				return true
+			}
+			log.Printf("addImportViaSourceModification error: %v", err)
+		}
+
+		// TODO(bradfitz): fix above and resume using this old code:
 		impDecl = &ast.GenDecl{
 			Tok: token.IMPORT,
 		}
@@ -110,7 +130,7 @@ func AddNamedImport(f *ast.File, name, ipath string) (added bool) {
 }
 
 // DeleteImport deletes the import path from the file f, if present.
-func DeleteImport(f *ast.File, path string) (deleted bool) {
+func DeleteImport(fset *token.FileSet, f *ast.File, path string) (deleted bool) {
 	oldImport := importSpec(f, path)
 
 	// Find the import node that imports path, if any.
@@ -140,11 +160,22 @@ func DeleteImport(f *ast.File, path string) (deleted bool) {
 				gen.Lparen = token.NoPos // drop parens
 			}
 			if j > 0 {
-				// We deleted an entry but now there will be
+				lastImpspec := gen.Specs[j-1].(*ast.ImportSpec)
+				lastLine := fset.Position(lastImpspec.Path.ValuePos).Line
+				line := fset.Position(impspec.Path.ValuePos).Line
+
+				// We deleted an entry but now there may be
 				// a blank line-sized hole where the import was.
-				// Close the hole by making the previous
-				// import appear to "end" where this one did.
-				gen.Specs[j-1].(*ast.ImportSpec).EndPos = impspec.End()
+				if line-lastLine > 1 {
+					// There was a blank line immediately preceeing the deleted import,
+					// so there's no need to close the hole.
+					// Do nothing.
+				} else {
+					// There was no blank line.
+					// Close the hole by making the previous
+					// import appear to "end" where this one did.
+					lastImpspec.EndPos = impspec.End()
+				}
 			}
 			break
 		}
@@ -163,7 +194,7 @@ func DeleteImport(f *ast.File, path string) (deleted bool) {
 }
 
 // RewriteImport rewrites any import of path oldPath to path newPath.
-func RewriteImport(f *ast.File, oldPath, newPath string) (rewrote bool) {
+func RewriteImport(fset *token.FileSet, f *ast.File, oldPath, newPath string) (rewrote bool) {
 	for _, imp := range f.Imports {
 		if importPath(imp) == oldPath {
 			rewrote = true
@@ -370,4 +401,30 @@ func Imports(fset *token.FileSet, f *ast.File) [][]*ast.ImportSpec {
 	}
 
 	return groups
+}
+
+// NOTE(bradfitz): this is a bit of a hack for golang.org/issue/6884
+// because we can't get the comment positions correct. Instead of modifying
+// the AST, we print it, modify the text, and re-parse it. Gross.
+func addImportViaSourceModification(fset *token.FileSet, f *ast.File, name, ipath string) (*ast.File, error) {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, f); err != nil {
+		return nil, fmt.Errorf("Error formatting ast.File node: %v", err)
+	}
+	var out bytes.Buffer
+	sc := bufio.NewScanner(bytes.NewReader(buf.Bytes()))
+	didAdd := false
+	for sc.Scan() {
+		ln := sc.Text()
+		out.WriteString(ln)
+		out.WriteByte('\n')
+		if !didAdd && strings.HasPrefix(ln, "package ") {
+			fmt.Fprintf(&out, "\nimport %s %q\n\n", name, ipath)
+			didAdd = true
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return parser.ParseFile(fset, "", out.Bytes(), parser.ParseComments)
 }

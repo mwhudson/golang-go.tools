@@ -13,6 +13,9 @@ import (
 	"code.google.com/p/go.tools/godoc/vfs/httpfs"
 )
 
+// SearchResultFunc functions return an HTML body for displaying search results.
+type SearchResultFunc func(p *Presentation, result SearchResult) []byte
+
 // Presentation generates output from a corpus.
 type Presentation struct {
 	Corpus *Corpus
@@ -22,13 +25,19 @@ type Presentation struct {
 	cmdHandler handlerServer
 	pkgHandler handlerServer
 
+	CallGraphHTML,
 	DirlistHTML,
 	ErrorHTML,
 	ExampleHTML,
 	GodocHTML,
+	ImplementsHTML,
+	MethodSetHTML,
 	PackageHTML,
 	PackageText,
 	SearchHTML,
+	SearchDocHTML,
+	SearchCodeHTML,
+	SearchTxtHTML,
 	SearchText,
 	SearchDescXML *template.Template
 
@@ -67,12 +76,27 @@ type Presentation struct {
 	// The source file argument has the form /src/pkg/<path>/<filename>.
 	URLForSrcPos func(src string, line, low, high int) string
 
+	// URLForSrcQuery optionally specifies a function to create a URL given a
+	// source file, a query string, and a line from the source file (1-based).
+	// The source file argument has the form /src/pkg/<path>/<filename>.
+	// The query argument will be escaped for the purposes of embedding in a URL
+	// query parameter.
+	// Ideally, the returned URL will be for the specified line of the file with
+	// the query string highlighted.
+	URLForSrcQuery func(src, query string, line int) string
+
+	// SearchResults optionally specifies a list of functions returning an HTML
+	// body for displaying search results.
+	SearchResults []SearchResultFunc
+
 	initFuncMapOnce sync.Once
 	funcMap         template.FuncMap
 	templateFuncs   template.FuncMap
 }
 
 // NewPresentation returns a new Presentation from a corpus.
+// It sets SearchResults to:
+// [SearchResultDoc SearchResultCode SearchResultTxt].
 func NewPresentation(c *Corpus) *Presentation {
 	if c == nil {
 		panic("nil Corpus")
@@ -85,6 +109,11 @@ func NewPresentation(c *Corpus) *Presentation {
 		TabWidth:     4,
 		ShowExamples: true,
 		DeclLinks:    true,
+		SearchResults: []SearchResultFunc{
+			(*Presentation).SearchResultDoc,
+			(*Presentation).SearchResultCode,
+			(*Presentation).SearchResultTxt,
+		},
 	}
 	p.cmdHandler = handlerServer{p, c, "/cmd/", "/src/cmd"}
 	p.pkgHandler = handlerServer{p, c, "/pkg/", "/src/pkg"}

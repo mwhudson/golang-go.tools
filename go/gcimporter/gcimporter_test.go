@@ -128,7 +128,7 @@ var importedObjectTests = []struct {
 	{"math.Pi", "const Pi untyped float"},
 	{"io.Reader", "type Reader interface{Read(p []byte) (n int, err error)}"},
 	{"io.ReadWriter", "type ReadWriter interface{Read(p []byte) (n int, err error); Write(p []byte) (n int, err error)}"},
-	{"math.Sin", "func Sin(x·2 float64) (_ float64)"},
+	{"math.Sin", "func Sin(x float64) float64"},
 	// TODO(gri) add more tests
 }
 
@@ -190,5 +190,27 @@ func TestIssue5815(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Smoke test to ensure that imported methods get the correct package.
+func TestCorrectMethodPackage(t *testing.T) {
+	// This package does not handle gccgo export data.
+	if runtime.Compiler == "gccgo" {
+		return
+	}
+
+	imports := make(map[string]*types.Package)
+	_, err := Import(imports, "net/http")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutex := imports["sync"].Scope().Lookup("Mutex").(*types.TypeName).Type()
+	mset := types.NewMethodSet(types.NewPointer(mutex)) // methods of *sync.Mutex
+	sel := mset.Lookup(nil, "Lock")
+	lock := sel.Obj().(*types.Func)
+	if got, want := lock.Pkg().Path(), "sync"; got != want {
+		t.Errorf("got package path %q; want %q", got, want)
 	}
 }

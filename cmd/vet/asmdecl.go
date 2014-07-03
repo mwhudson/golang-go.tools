@@ -33,6 +33,7 @@ type asmArch struct {
 	name      string
 	ptrSize   int
 	intSize   int
+	maxAlign  int
 	bigEndian bool
 }
 
@@ -55,14 +56,16 @@ type asmVar struct {
 }
 
 var (
-	asmArch386   = asmArch{"386", 4, 4, false}
-	asmArchArm   = asmArch{"arm", 4, 4, false}
-	asmArchAmd64 = asmArch{"amd64", 8, 8, false}
+	asmArch386      = asmArch{"386", 4, 4, 4, false}
+	asmArchArm      = asmArch{"arm", 4, 4, 4, false}
+	asmArchAmd64    = asmArch{"amd64", 8, 8, 8, false}
+	asmArchAmd64p32 = asmArch{"amd64p32", 4, 4, 8, false}
 
 	arches = []*asmArch{
 		&asmArch386,
 		&asmArchArm,
 		&asmArchAmd64,
+		&asmArchAmd64p32,
 	}
 )
 
@@ -119,8 +122,8 @@ func asmCheck(pkg *Package) {
 		for lineno, line := range lines {
 			lineno++
 
-			warnf := func(format string, args ...interface{}) {
-				f.Warnf(token.NoPos, "%s:%d: [%s] %s", f.name, lineno, arch, fmt.Sprintf(format, args...))
+			badf := func(format string, args ...interface{}) {
+				f.Badf(token.NoPos, "%s:%d: [%s] %s", f.name, lineno, arch, fmt.Sprintf(format, args...))
 			}
 
 			if arch == "" {
@@ -147,7 +150,7 @@ func asmCheck(pkg *Package) {
 				if fn != nil {
 					size, _ := strconv.Atoi(m[4])
 					if size != fn.size && (m[2] != "7" && !strings.Contains(m[2], "NOSPLIT") || size != 0) {
-						warnf("wrong argument size %d; expected $...-%d", size, fn.size)
+						badf("wrong argument size %d; expected $...-%d", size, fn.size)
 					}
 				}
 				continue
@@ -165,7 +168,7 @@ func asmCheck(pkg *Package) {
 			}
 
 			for _, m := range asmUnnamedFP.FindAllStringSubmatch(line, -1) {
-				warnf("use of unnamed argument %s", m[1])
+				badf("use of unnamed argument %s", m[1])
 			}
 
 			for _, m := range asmNamedFP.FindAllStringSubmatch(line, -1) {
@@ -182,13 +185,13 @@ func asmCheck(pkg *Package) {
 					}
 					v = fn.varByOffset[off]
 					if v != nil {
-						warnf("unknown variable %s; offset %d is %s+%d(FP)", name, off, v.name, v.off)
+						badf("unknown variable %s; offset %d is %s+%d(FP)", name, off, v.name, v.off)
 					} else {
-						warnf("unknown variable %s", name)
+						badf("unknown variable %s", name)
 					}
 					continue
 				}
-				asmCheckVar(warnf, fn, line, m[0], off, v)
+				asmCheckVar(badf, fn, line, m[0], off, v)
 			}
 		}
 	}
@@ -234,13 +237,13 @@ func (f *File) asmParseDecl(decl *ast.FuncDecl) map[string]*asmFunc {
 				case "int32", "uint32", "float32":
 					size = 4
 				case "int64", "uint64", "float64":
-					align = arch.ptrSize
+					align = arch.maxAlign
 					size = 8
 				case "int", "uint":
 					size = arch.intSize
 				case "uintptr", "iword", "Word", "Errno", "unsafe.Pointer":
 					size = arch.ptrSize
-				case "string":
+				case "string", "ErrorString":
 					size = arch.ptrSize * 2
 					align = arch.ptrSize
 					kind = asmString
@@ -403,7 +406,7 @@ func (f *File) asmParseDecl(decl *ast.FuncDecl) map[string]*asmFunc {
 		offset = 0
 		addParams(decl.Type.Params.List)
 		if decl.Type.Results != nil && len(decl.Type.Results.List) > 0 {
-			offset += -offset & (arch.ptrSize - 1)
+			offset += -offset & (arch.maxAlign - 1)
 			addParams(decl.Type.Results.List)
 		}
 		fn.size = offset
@@ -417,10 +420,10 @@ func (f *File) asmParseDecl(decl *ast.FuncDecl) map[string]*asmFunc {
 }
 
 // asmCheckVar checks a single variable reference.
-func asmCheckVar(warnf func(string, ...interface{}), fn *asmFunc, line, expr string, off int, v *asmVar) {
+func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr string, off int, v *asmVar) {
 	m := asmOpcode.FindStringSubmatch(line)
 	if m == nil {
-		warnf("cannot find assembly opcode")
+		badf("cannot find assembly opcode")
 	}
 
 	// Determine operand sizes from instruction.
@@ -510,7 +513,7 @@ func asmCheckVar(warnf func(string, ...interface{}), fn *asmFunc, line, expr str
 			}
 			fmt.Fprintf(&inner, "%s+%d(FP)", vi.name, vi.off)
 		}
-		warnf("invalid offset %s; expected %s+%d(FP)%s", expr, v.name, v.off, inner.String())
+		badf("invalid offset %s; expected %s+%d(FP)%s", expr, v.name, v.off, inner.String())
 		return
 	}
 	if kind != 0 && kind != vk {
@@ -528,6 +531,6 @@ func asmCheckVar(warnf func(string, ...interface{}), fn *asmFunc, line, expr str
 				fmt.Fprintf(&inner, "%s+%d(FP)", vi.name, vi.off)
 			}
 		}
-		warnf("invalid %s of %s; %s is %d-byte value%s", op, expr, vt, vk, inner.String())
+		badf("invalid %s of %s; %s is %d-byte value%s", op, expr, vt, vk, inner.String())
 	}
 }

@@ -1,6 +1,5 @@
--------- @describe describe-A-x --------
-definition of var x *int
-value may point to these labels:
+-------- @pointsto pointsto-A-x --------
+this *int may point to these objects:
 	a
 	b
 
@@ -10,9 +9,8 @@ main.A
 dynamic function call from main.apply
 static function call from main.main
 
--------- @describe describe-B-x --------
-definition of var x *int
-value may point to these labels:
+-------- @pointsto pointsto-B-x --------
+this *int may point to these objects:
 	a
 	b
 
@@ -35,15 +33,13 @@ main.store is called from these 2 sites:
 	static function call from main.main
 	static function call from main.main
 
--------- @describe describe-result-f --------
-reference to var f func() *int
-defined here
-value may point to these labels:
-	func@50.7
+-------- @pointsto pointsto-result-f --------
+this func() *int may point to these objects:
+	main$1
 
 -------- @callees callees-main.call-f --------
 this dynamic function call dispatches to:
-	func@50.7
+	main$1
 
 -------- @callers callers-main.call --------
 main.call is called from these 2 sites:
@@ -54,15 +50,12 @@ main.call is called from these 2 sites:
 this static function call dispatches to:
 	main.apply
 
--------- @describe describe-pc --------
-definition of var pc *int
-value may point to these labels:
+-------- @pointsto pointsto-pc --------
+this *int may point to these objects:
 	c
 
--------- @describe describe-pd --------
-reference to var pd *int
-defined here
-value may point to these labels:
+-------- @pointsto pointsto-pd --------
+this *int may point to these objects:
 	d
 
 -------- @callees callees-err-no-call --------
@@ -86,12 +79,24 @@ dynamic function call on nil value
 -------- @callees callees-err-nil-interface --------
 dynamic method call on nil value
 
--------- @callees callees-err-deadcode2 --------
+-------- @callees callees-not-a-wrapper --------
+this dynamic method call dispatches to:
+	(main.myint).f
 
-Error: this function is unreachable in this analysis
+-------- @callers callers-not-a-wrapper --------
+(main.myint).f is called from these 1 sites:
+	dynamic method call from main.main
+
+-------- @callees callees-err-deadcode2 --------
+this static function call dispatches to:
+	main.main
+
 -------- @callstack callstack-err-deadcode --------
 main.deadcode is unreachable in this analysis scope
 
+-------- @callees callees-err-deadcode3 --------
+
+Error: this call site is unreachable in this analysis
 -------- @callers callers-global --------
 main.init is called from these 1 sites:
 the root of the call graph
