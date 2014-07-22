@@ -37,6 +37,8 @@ override_dh_auto_install:
 	# /usr/lib/go/pkg, respectively.
 	echo "listing CURDIR=$(CURDIR):"
 	ls -hlR $(CURDIR)
+	# Rename “eg” to “golang-eg” (#753978)
+	mv $(CURDIR)/debian/tmp/usr/bin/eg $(CURDIR)/debian/tmp/usr/bin/golang-eg
 	(cd $(CURDIR)/temproot/bin; \
 	 for file in $$(find . -type f -newer $$(find $(CURDIR)/temproot/pkg/tool/ -name "fix")); do \
 		mkdir -p $(CURDIR)/debian/tmp/usr/bin/$$(dirname $$file); \

@@ -1,3 +1,9 @@
+golang-go.tools (0.0~hg20140703-2) unstable; urgency=medium
+
+  * Rename eg to golang-go (Closes: #753978)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 22 Jul 2014 09:48:00 +0200
+
 golang-go.tools (0.0~hg20140703-1) unstable; urgency=medium
 
   * Import new upstream version (release-branch.go1.3). The old version broke
