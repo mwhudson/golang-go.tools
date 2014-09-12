@@ -1,3 +1,9 @@
+golang-go.tools (0.0~hg20140703-4) unstable; urgency=medium
+
+  * Update debian/patches/0003-fix-tests.patch
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 12 Sep 2014 09:11:12 +0200
+
 golang-go.tools (0.0~hg20140703-3) unstable; urgency=medium
 
   * Add debian/patches/0003-fix-tests.patch (Closes: #754644)
