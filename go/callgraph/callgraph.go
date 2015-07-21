@@ -32,7 +32,7 @@ in the call graph; they are treated like built-in operators of the
 language.
 
 */
-package callgraph
+package callgraph // import "golang.org/x/tools/go/callgraph"
 
 // TODO(adonovan): add a function to eliminate wrappers from the
 // callgraph, preserving topology.
@@ -41,8 +41,9 @@ package callgraph
 
 import (
 	"fmt"
+	"go/token"
 
-	"code.google.com/p/go.tools/go/ssa"
+	"golang.org/x/tools/go/ssa"
 )
 
 // A Graph represents a call graph.
@@ -97,6 +98,26 @@ type Edge struct {
 
 func (e Edge) String() string {
 	return fmt.Sprintf("%s --> %s", e.Caller, e.Callee)
+}
+
+func (e Edge) Description() string {
+	var prefix string
+	switch e.Site.(type) {
+	case nil:
+		return "synthetic call"
+	case *ssa.Go:
+		prefix = "concurrent "
+	case *ssa.Defer:
+		prefix = "deferred "
+	}
+	return prefix + e.Site.Common().Description()
+}
+
+func (e Edge) Pos() token.Pos {
+	if e.Site == nil {
+		return token.NoPos
+	}
+	return e.Site.Pos()
 }
 
 // AddEdge adds the edge (caller, site, callee) to the call graph.

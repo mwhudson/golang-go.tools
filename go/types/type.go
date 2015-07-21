@@ -196,20 +196,22 @@ func (t *Tuple) At(i int) *Var { return t.vars[i] }
 
 // A Signature represents a (non-builtin) function or method type.
 type Signature struct {
-	scope    *Scope // function scope, always present
+	// We need to keep the scope in Signature (rather than passing it around
+	// and store it in the Func Object) because when type-checking a function
+	// literal we call the general type checker which returns a general Type.
+	// We then unpack the *Signature and use the scope for the literal body.
+	scope    *Scope // function scope, present for package-local signatures
 	recv     *Var   // nil if not a method
 	params   *Tuple // (incoming) parameters from left to right; or nil
 	results  *Tuple // (outgoing) results from left to right; or nil
-	variadic bool   // true if the last parameter's type is of the form ...T
+	variadic bool   // true if the last parameter's type is of the form ...T (or string, for append built-in only)
 }
 
 // NewSignature returns a new function type for the given receiver, parameters,
 // and results, either of which may be nil. If variadic is set, the function
 // is variadic, it must have at least one parameter, and the last parameter
 // must be of unnamed slice type.
-func NewSignature(scope *Scope, recv *Var, params, results *Tuple, variadic bool) *Signature {
-	// TODO(gri) Should we rely on the correct (non-nil) incoming scope
-	//           or should this function allocate and populate a scope?
+func NewSignature(recv *Var, params, results *Tuple, variadic bool) *Signature {
 	if variadic {
 		n := params.Len()
 		if n == 0 {
@@ -219,7 +221,7 @@ func NewSignature(scope *Scope, recv *Var, params, results *Tuple, variadic bool
 			panic("types.NewSignature: variadic parameter must be of unnamed slice type")
 		}
 	}
-	return &Signature{scope, recv, params, results, variadic}
+	return &Signature{nil, recv, params, results, variadic}
 }
 
 // Recv returns the receiver of signature s (if a method), or nil if a
@@ -263,29 +265,12 @@ func NewInterface(methods []*Func, embeddeds []*Named) *Interface {
 	}
 	sort.Sort(byUniqueMethodName(methods))
 
-	var allMethods []*Func
 	if embeddeds == nil {
-		allMethods = methods
-	} else {
-		allMethods = append(allMethods, methods...)
-		for _, t := range embeddeds {
-			it := t.Underlying().(*Interface)
-			for _, tm := range it.allMethods {
-				// Make a copy of the method and adjust its receiver type.
-				newm := *tm
-				newmtyp := *tm.typ.(*Signature)
-				newm.typ = &newmtyp
-				newmtyp.recv = NewVar(newm.pos, newm.pkg, "", typ)
-				allMethods = append(allMethods, &newm)
-			}
-		}
 		sort.Sort(byUniqueTypeName(embeddeds))
-		sort.Sort(byUniqueMethodName(allMethods))
 	}
 
 	typ.methods = methods
 	typ.embeddeds = embeddeds
-	typ.allMethods = allMethods
 	return typ
 }
 
@@ -312,6 +297,43 @@ func (t *Interface) Method(i int) *Func { return t.allMethods[i] }
 
 // Empty returns true if t is the empty interface.
 func (t *Interface) Empty() bool { return len(t.allMethods) == 0 }
+
+// Complete computes the interface's method set. It must be called by users of
+// NewInterface after the interface's embedded types are fully defined and
+// before using the interface type in any way other than to form other types.
+// Complete returns the receiver.
+func (t *Interface) Complete() *Interface {
+	if t.allMethods != nil {
+		return t
+	}
+
+	var allMethods []*Func
+	if t.embeddeds == nil {
+		if t.methods == nil {
+			allMethods = make([]*Func, 0, 1)
+		} else {
+			allMethods = t.methods
+		}
+	} else {
+		allMethods = append(allMethods, t.methods...)
+		for _, et := range t.embeddeds {
+			it := et.Underlying().(*Interface)
+			it.Complete()
+			for _, tm := range it.allMethods {
+				// Make a copy of the method and adjust its receiver type.
+				newm := *tm
+				newmtyp := *tm.typ.(*Signature)
+				newm.typ = &newmtyp
+				newmtyp.recv = NewVar(newm.pos, newm.pkg, "", t)
+				allMethods = append(allMethods, &newm)
+			}
+		}
+		sort.Sort(byUniqueMethodName(allMethods))
+	}
+	t.allMethods = allMethods
+
+	return t
+}
 
 // A Map represents a map type.
 type Map struct {
@@ -419,14 +441,14 @@ func (t *Map) Underlying() Type       { return t }
 func (t *Chan) Underlying() Type      { return t }
 func (t *Named) Underlying() Type     { return t.underlying }
 
-func (t *Basic) String() string     { return TypeString(nil, t) }
-func (t *Array) String() string     { return TypeString(nil, t) }
-func (t *Slice) String() string     { return TypeString(nil, t) }
-func (t *Struct) String() string    { return TypeString(nil, t) }
-func (t *Pointer) String() string   { return TypeString(nil, t) }
-func (t *Tuple) String() string     { return TypeString(nil, t) }
-func (t *Signature) String() string { return TypeString(nil, t) }
-func (t *Interface) String() string { return TypeString(nil, t) }
-func (t *Map) String() string       { return TypeString(nil, t) }
-func (t *Chan) String() string      { return TypeString(nil, t) }
-func (t *Named) String() string     { return TypeString(nil, t) }
+func (t *Basic) String() string     { return TypeString(t, nil) }
+func (t *Array) String() string     { return TypeString(t, nil) }
+func (t *Slice) String() string     { return TypeString(t, nil) }
+func (t *Struct) String() string    { return TypeString(t, nil) }
+func (t *Pointer) String() string   { return TypeString(t, nil) }
+func (t *Tuple) String() string     { return TypeString(t, nil) }
+func (t *Signature) String() string { return TypeString(t, nil) }
+func (t *Interface) String() string { return TypeString(t, nil) }
+func (t *Map) String() string       { return TypeString(t, nil) }
+func (t *Chan) String() string      { return TypeString(t, nil) }
+func (t *Named) String() string     { return TypeString(t, nil) }

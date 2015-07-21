@@ -9,14 +9,15 @@ package main
 import (
 	"mime"
 
-	"code.google.com/p/go.tools/present"
+	"golang.org/x/tools/present"
 
-	_ "code.google.com/p/go.tools/playground"
+	_ "golang.org/x/tools/playground"
 )
 
 var basePath = "./present/"
 
 func init() {
+	initTemplates(basePath)
 	playScript(basePath, "HTTPTransport")
 	present.PlayEnabled = true
 

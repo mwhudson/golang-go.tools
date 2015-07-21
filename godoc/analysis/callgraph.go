@@ -16,9 +16,9 @@ import (
 	"math/big"
 	"sort"
 
-	"code.google.com/p/go.tools/go/callgraph"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/callgraph"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/types"
 )
 
 // doCallgraph computes the CALLEES and CALLERS relations.
@@ -43,7 +43,7 @@ func (a *analysis) doCallgraph(cg *callgraph.Graph) {
 	for _, n := range cg.Nodes {
 		for _, e := range n.Out {
 			if e.Site == nil {
-				continue // a call from the <root> node
+				continue // a call from a synthetic node such as <root>
 			}
 
 			// Add (site pos, callee) to calledFuncs.
@@ -235,10 +235,10 @@ func funcToken(fn *ssa.Function) token.Pos {
 // prettyFunc pretty-prints fn for the user interface.
 // TODO(adonovan): return HTML so we have more markup freedom.
 func prettyFunc(this *types.Package, fn *ssa.Function) string {
-	if fn.Enclosing != nil {
+	if fn.Parent() != nil {
 		return fmt.Sprintf("%s in %s",
-			types.TypeString(this, fn.Signature),
-			prettyFunc(this, fn.Enclosing))
+			types.TypeString(fn.Signature, types.RelativeTo(this)),
+			prettyFunc(this, fn.Parent()))
 	}
 	if fn.Synthetic != "" && fn.Name() == "init" {
 		// (This is the actual initializer, not a declared 'func init').

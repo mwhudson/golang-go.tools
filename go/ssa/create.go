@@ -8,52 +8,33 @@ package ssa
 // See builder.go for explanation.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"os"
+	"sync"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
-// BuilderMode is a bitmask of options for diagnostics and checking.
-type BuilderMode uint
-
-const (
-	LogPackages          BuilderMode = 1 << iota // Dump package inventory to stderr
-	LogFunctions                                 // Dump function SSA code to stderr
-	LogSource                                    // Show source locations as SSA builder progresses
-	SanityCheckFunctions                         // Perform sanity checking of function bodies
-	NaiveForm                                    // Build naïve SSA form: don't replace local loads/stores with registers
-	BuildSerially                                // Build packages serially, not in parallel.
-	GlobalDebug                                  // Enable debug info for all packages
-)
-
-// Create returns a new SSA Program.  An SSA Package is created for
-// each transitively error-free package of iprog.
-//
-// Code for bodies of functions is not built until Build() is called
-// on the result.
+// NewProgram returns a new SSA Program.
 //
 // mode controls diagnostics and checking during SSA construction.
 //
-func Create(iprog *loader.Program, mode BuilderMode) *Program {
+func NewProgram(fset *token.FileSet, mode BuilderMode) *Program {
 	prog := &Program{
-		Fset:                iprog.Fset,
-		imported:            make(map[string]*Package),
-		packages:            make(map[*types.Package]*Package),
-		boundMethodWrappers: make(map[*types.Func]*Function),
-		ifaceMethodWrappers: make(map[*types.Func]*Function),
-		mode:                mode,
+		Fset:     fset,
+		imported: make(map[string]*Package),
+		packages: make(map[*types.Package]*Package),
+		thunks:   make(map[selectionKey]*Function),
+		bounds:   make(map[*types.Func]*Function),
+		mode:     mode,
 	}
 
-	for _, info := range iprog.AllPackages {
-		// TODO(adonovan): relax this constraint if the
-		// program contains only "soft" errors.
-		if info.TransitivelyErrorFree {
-			prog.CreatePackage(info)
-		}
-	}
+	h := typeutil.MakeHasher() // protected by methodsMu, in effect
+	prog.methodSets.SetHasher(h)
+	prog.canon.SetHasher(h)
 
 	return prog
 }
@@ -95,10 +76,15 @@ func memberFromObject(pkg *Package, obj types.Object, syntax ast.Node) {
 		pkg.Members[name] = g
 
 	case *types.Func:
+		sig := obj.Type().(*types.Signature)
+		if sig.Recv() == nil && name == "init" {
+			pkg.ninit++
+			name = fmt.Sprintf("init#%d", pkg.ninit)
+		}
 		fn := &Function{
 			name:      name,
 			object:    obj,
-			Signature: obj.Type().(*types.Signature),
+			Signature: sig,
 			syntax:    syntax,
 			pos:       obj.Pos(),
 			Pkg:       pkg,
@@ -109,7 +95,7 @@ func memberFromObject(pkg *Package, obj types.Object, syntax ast.Node) {
 		}
 
 		pkg.values[obj] = fn
-		if fn.Signature.Recv() == nil {
+		if sig.Recv() == nil {
 			pkg.Members[name] = fn // package-level function
 		}
 
@@ -130,7 +116,7 @@ func membersFromDecl(pkg *Package, decl ast.Decl) {
 			for _, spec := range decl.Specs {
 				for _, id := range spec.(*ast.ValueSpec).Names {
 					if !isBlankIdent(id) {
-						memberFromObject(pkg, pkg.objectOf(id), nil)
+						memberFromObject(pkg, pkg.info.Defs[id], nil)
 					}
 				}
 			}
@@ -139,7 +125,7 @@ func membersFromDecl(pkg *Package, decl ast.Decl) {
 			for _, spec := range decl.Specs {
 				for _, id := range spec.(*ast.ValueSpec).Names {
 					if !isBlankIdent(id) {
-						memberFromObject(pkg, pkg.objectOf(id), spec)
+						memberFromObject(pkg, pkg.info.Defs[id], spec)
 					}
 				}
 			}
@@ -148,42 +134,37 @@ func membersFromDecl(pkg *Package, decl ast.Decl) {
 			for _, spec := range decl.Specs {
 				id := spec.(*ast.TypeSpec).Name
 				if !isBlankIdent(id) {
-					memberFromObject(pkg, pkg.objectOf(id), nil)
+					memberFromObject(pkg, pkg.info.Defs[id], nil)
 				}
 			}
 		}
 
 	case *ast.FuncDecl:
 		id := decl.Name
-		if decl.Recv == nil && id.Name == "init" {
-			return // no object
-		}
 		if !isBlankIdent(id) {
-			memberFromObject(pkg, pkg.objectOf(id), decl)
+			memberFromObject(pkg, pkg.info.Defs[id], decl)
 		}
 	}
 }
 
-// CreatePackage constructs and returns an SSA Package from an
-// error-free package described by info, and populates its Members
-// mapping.
+// CreatePackage constructs and returns an SSA Package from the
+// specified type-checked, error-free file ASTs, and populates its
+// Members mapping.
 //
-// Repeated calls with the same info return the same Package.
+// importable determines whether this package should be returned by a
+// subsequent call to ImportedPackage(pkg.Path()).
 //
 // The real work of building SSA form for each function is not done
 // until a subsequent call to Package.Build().
 //
-func (prog *Program) CreatePackage(info *loader.PackageInfo) *Package {
-	if p := prog.packages[info.Pkg]; p != nil {
-		return p // already loaded
-	}
-
+func (prog *Program) CreatePackage(pkg *types.Package, files []*ast.File, info *types.Info, importable bool) *Package {
 	p := &Package{
 		Prog:    prog,
 		Members: make(map[string]Member),
 		values:  make(map[types.Object]Value),
-		Object:  info.Pkg,
-		info:    info, // transient (CREATE and BUILD phases)
+		Object:  pkg,
+		info:    info,  // transient (CREATE and BUILD phases)
+		files:   files, // transient (CREATE and BUILD phases)
 	}
 
 	// Add init() function.
@@ -198,9 +179,9 @@ func (prog *Program) CreatePackage(info *loader.PackageInfo) *Package {
 
 	// CREATE phase.
 	// Allocate all package members: vars, funcs, consts and types.
-	if len(info.Files) > 0 {
+	if len(files) > 0 {
 		// Go source package.
-		for _, file := range info.Files {
+		for _, file := range files {
 			for _, decl := range file.Decls {
 				membersFromDecl(p, decl)
 			}
@@ -222,33 +203,36 @@ func (prog *Program) CreatePackage(info *loader.PackageInfo) *Package {
 		}
 	}
 
-	// Add initializer guard variable.
-	initguard := &Global{
-		Pkg:  p,
-		name: "init$guard",
-		typ:  types.NewPointer(tBool),
+	if prog.mode&BareInits == 0 {
+		// Add initializer guard variable.
+		initguard := &Global{
+			Pkg:  p,
+			name: "init$guard",
+			typ:  types.NewPointer(tBool),
+		}
+		p.Members[initguard.Name()] = initguard
 	}
-	p.Members[initguard.Name()] = initguard
 
 	if prog.mode&GlobalDebug != 0 {
 		p.SetDebugMode(true)
 	}
 
-	if prog.mode&LogPackages != 0 {
-		p.WriteTo(os.Stderr)
+	if prog.mode&PrintPackages != 0 {
+		printMu.Lock()
+		p.WriteTo(os.Stdout)
+		printMu.Unlock()
 	}
 
-	if info.Importable {
-		prog.imported[info.Pkg.Path()] = p
+	if importable {
+		prog.imported[p.Object.Path()] = p
 	}
 	prog.packages[p.Object] = p
 
-	if prog.mode&SanityCheckFunctions != 0 {
-		sanityCheckPackage(p)
-	}
-
 	return p
 }
+
+// printMu serializes printing of Packages/Functions to stdout.
+var printMu sync.Mutex
 
 // AllPackages returns a new slice containing all packages in the
 // program prog in unspecified order.

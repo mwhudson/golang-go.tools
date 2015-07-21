@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/types"
-	"code.google.com/p/go.tools/refactor/eg"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/refactor/eg"
 )
 
 // TODO(adonovan): more tests:
@@ -36,9 +36,8 @@ func Test(t *testing.T) {
 	}
 
 	conf := loader.Config{
-		Fset:          token.NewFileSet(),
-		ParserMode:    parser.ParseComments,
-		SourceImports: true,
+		Fset:       token.NewFileSet(),
+		ParserMode: parser.ParseComments,
 	}
 
 	// Each entry is a single-file package.
@@ -62,6 +61,15 @@ func Test(t *testing.T) {
 		"testdata/E.template",
 		"testdata/E1.go",
 
+		"testdata/F.template",
+		"testdata/F1.go",
+
+		"testdata/G.template",
+		"testdata/G1.go",
+
+		"testdata/H.template",
+		"testdata/H1.go",
+
 		"testdata/bad_type.template",
 		"testdata/no_before.template",
 		"testdata/no_after_return.template",
@@ -69,9 +77,7 @@ func Test(t *testing.T) {
 		"testdata/expr_type_mismatch.template",
 	} {
 		pkgname := strings.TrimSuffix(filepath.Base(filename), ".go")
-		if err := conf.CreateFromFilenames(pkgname, filename); err != nil {
-			t.Fatal(err)
-		}
+		conf.CreateFromFilenames(pkgname, filename)
 	}
 	iprog, err := conf.Load()
 	if err != nil {

@@ -35,6 +35,8 @@ type asmArch struct {
 	intSize   int
 	maxAlign  int
 	bigEndian bool
+	stack     string
+	lr        bool
 }
 
 // An asmFunc describes the expected variables for a function on a given architecture.
@@ -56,27 +58,35 @@ type asmVar struct {
 }
 
 var (
-	asmArch386      = asmArch{"386", 4, 4, 4, false}
-	asmArchArm      = asmArch{"arm", 4, 4, 4, false}
-	asmArchAmd64    = asmArch{"amd64", 8, 8, 8, false}
-	asmArchAmd64p32 = asmArch{"amd64p32", 4, 4, 8, false}
+	asmArch386       = asmArch{"386", 4, 4, 4, false, "SP", false}
+	asmArchArm       = asmArch{"arm", 4, 4, 4, false, "R13", true}
+	asmArchArm64     = asmArch{"arm64", 8, 8, 8, false, "RSP", true}
+	asmArchAmd64     = asmArch{"amd64", 8, 8, 8, false, "SP", false}
+	asmArchAmd64p32  = asmArch{"amd64p32", 4, 4, 8, false, "SP", false}
+	asmArchPower64   = asmArch{"power64", 8, 8, 8, true, "R1", true}
+	asmArchPower64LE = asmArch{"power64le", 8, 8, 8, false, "R1", true}
 
 	arches = []*asmArch{
 		&asmArch386,
 		&asmArchArm,
+		&asmArchArm64,
 		&asmArchAmd64,
 		&asmArchAmd64p32,
+		&asmArchPower64,
+		&asmArchPower64LE,
 	}
 )
 
 var (
 	re           = regexp.MustCompile
 	asmPlusBuild = re(`//\s+\+build\s+([^\n]+)`)
-	asmTEXT      = re(`\bTEXT\b.*·([^\(]+)\(SB\)(?:\s*,\s*([0-9A-Z|+]+))?(?:\s*,\s*\$([0-9]+)(?:-([0-9]+))?)?`)
+	asmTEXT      = re(`\bTEXT\b.*·([^\(]+)\(SB\)(?:\s*,\s*([0-9A-Z|+]+))?(?:\s*,\s*\$(-?[0-9]+)(?:-([0-9]+))?)?`)
 	asmDATA      = re(`\b(DATA|GLOBL)\b`)
 	asmNamedFP   = re(`([a-zA-Z0-9_\xFF-\x{10FFFF}]+)(?:\+([0-9]+))\(FP\)`)
-	asmUnnamedFP = re(`[^+\-0-9]](([0-9]+)\(FP\))`)
+	asmUnnamedFP = re(`[^+\-0-9](([0-9]+)\(FP\))`)
+	asmSP        = re(`[^+\-0-9](([0-9]+)\(([A-Z0-9]+)\))`)
 	asmOpcode    = re(`^\s*(?:[A-Z0-9a-z_]+:)?\s*([A-Z]+)\s*([^,]*)(?:,\s*(.*))?`)
+	power64Suff  = re(`([BHWD])(ZU|Z|U|BR)?$`)
 )
 
 func asmCheck(pkg *Package) {
@@ -102,7 +112,7 @@ func asmCheck(pkg *Package) {
 		}
 	}
 
-	var fn *asmFunc
+Files:
 	for _, f := range pkg.files {
 		if !strings.HasSuffix(f.name, ".s") {
 			continue
@@ -111,19 +121,39 @@ func asmCheck(pkg *Package) {
 
 		// Determine architecture from file name if possible.
 		var arch string
+		var archDef *asmArch
 		for _, a := range arches {
 			if strings.HasSuffix(f.name, "_"+a.name+".s") {
 				arch = a.name
+				archDef = a
 				break
 			}
 		}
 
 		lines := strings.SplitAfter(string(f.content), "\n")
+		var (
+			fn                 *asmFunc
+			fnName             string
+			localSize, argSize int
+			wroteSP            bool
+			haveRetArg         bool
+			retLine            []int
+		)
+
+		flushRet := func() {
+			if fn != nil && fn.vars["ret"] != nil && !haveRetArg && len(retLine) > 0 {
+				v := fn.vars["ret"]
+				for _, line := range retLine {
+					f.Badf(token.NoPos, "%s:%d: [%s] %s: RET without writing to %d-byte ret+%d(FP)", f.name, line, arch, fnName, v.size, v.off)
+				}
+			}
+			retLine = nil
+		}
 		for lineno, line := range lines {
 			lineno++
 
 			badf := func(format string, args ...interface{}) {
-				f.Badf(token.NoPos, "%s:%d: [%s] %s", f.name, lineno, arch, fmt.Sprintf(format, args...))
+				f.Badf(token.NoPos, "%s:%d: [%s] %s: %s", f.name, lineno, arch, fnName, fmt.Sprintf(format, args...))
 			}
 
 			if arch == "" {
@@ -134,6 +164,7 @@ func asmCheck(pkg *Package) {
 						for _, a := range arches {
 							if a.name == fld {
 								arch = a.name
+								archDef = a
 								break Fields
 							}
 						}
@@ -142,10 +173,12 @@ func asmCheck(pkg *Package) {
 			}
 
 			if m := asmTEXT.FindStringSubmatch(line); m != nil {
+				flushRet()
 				if arch == "" {
 					f.Warnf(token.NoPos, "%s: cannot determine architecture for assembly file", f.name)
-					return
+					continue Files
 				}
+				fnName = m[1]
 				fn = knownFunc[m[1]][arch]
 				if fn != nil {
 					size, _ := strconv.Atoi(m[4])
@@ -153,22 +186,84 @@ func asmCheck(pkg *Package) {
 						badf("wrong argument size %d; expected $...-%d", size, fn.size)
 					}
 				}
+				localSize, _ = strconv.Atoi(m[3])
+				localSize += archDef.intSize
+				if archDef.lr {
+					// Account for caller's saved LR
+					localSize += archDef.intSize
+				}
+				argSize, _ = strconv.Atoi(m[4])
+				if fn == nil && !strings.Contains(fnName, "<>") {
+					badf("function %s missing Go declaration", fnName)
+				}
+				wroteSP = false
+				haveRetArg = false
 				continue
 			} else if strings.Contains(line, "TEXT") && strings.Contains(line, "SB") {
 				// function, but not visible from Go (didn't match asmTEXT), so stop checking
+				flushRet()
 				fn = nil
+				fnName = ""
+				continue
+			}
+
+			if strings.Contains(line, "RET") {
+				retLine = append(retLine, lineno)
+			}
+
+			if fnName == "" {
 				continue
 			}
 
 			if asmDATA.FindStringSubmatch(line) != nil {
 				fn = nil
 			}
+
+			if archDef == nil {
+				continue
+			}
+
+			if strings.Contains(line, ", "+archDef.stack) || strings.Contains(line, ",\t"+archDef.stack) {
+				wroteSP = true
+				continue
+			}
+
+			for _, m := range asmSP.FindAllStringSubmatch(line, -1) {
+				if m[3] != archDef.stack || wroteSP {
+					continue
+				}
+				off := 0
+				if m[1] != "" {
+					off, _ = strconv.Atoi(m[2])
+				}
+				if off >= localSize {
+					if fn != nil {
+						v := fn.varByOffset[off-localSize]
+						if v != nil {
+							badf("%s should be %s+%d(FP)", m[1], v.name, off-localSize)
+							continue
+						}
+					}
+					if off >= localSize+argSize {
+						badf("use of %s points beyond argument frame", m[1])
+						continue
+					}
+					badf("use of %s to access argument frame", m[1])
+				}
+			}
+
 			if fn == nil {
 				continue
 			}
 
 			for _, m := range asmUnnamedFP.FindAllStringSubmatch(line, -1) {
-				badf("use of unnamed argument %s", m[1])
+				off, _ := strconv.Atoi(m[2])
+				v := fn.varByOffset[off]
+				if v != nil {
+					badf("use of unnamed argument %s; offset %d is %s+%d(FP)", m[1], off, v.name, v.off)
+				} else {
+					badf("use of unnamed argument %s", m[1])
+				}
 			}
 
 			for _, m := range asmNamedFP.FindAllStringSubmatch(line, -1) {
@@ -176,6 +271,9 @@ func asmCheck(pkg *Package) {
 				off := 0
 				if m[2] != "" {
 					off, _ = strconv.Atoi(m[2])
+				}
+				if name == "ret" || strings.HasPrefix(name, "ret_") {
+					haveRetArg = true
 				}
 				v := fn.vars[name]
 				if v == nil {
@@ -194,6 +292,7 @@ func asmCheck(pkg *Package) {
 				asmCheckVar(badf, fn, line, m[0], off, v)
 			}
 		}
+		flushRet()
 	}
 }
 
@@ -423,7 +522,10 @@ func (f *File) asmParseDecl(decl *ast.FuncDecl) map[string]*asmFunc {
 func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr string, off int, v *asmVar) {
 	m := asmOpcode.FindStringSubmatch(line)
 	if m == nil {
-		badf("cannot find assembly opcode")
+		if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+			badf("cannot find assembly opcode")
+		}
+		return
 	}
 
 	// Determine operand sizes from instruction.
@@ -441,8 +543,17 @@ func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr stri
 		src = 2
 	case "arm.MOVB", "arm.MOVBU":
 		src = 1
+	// LEA* opcodes don't really read the second arg.
+	// They just take the address of it.
+	case "386.LEAL":
+		dst = 4
+	case "amd64.LEAQ":
+		dst = 8
+	case "amd64p32.LEAL":
+		dst = 4
 	default:
-		if fn.arch.name == "386" || fn.arch.name == "amd64" {
+		switch fn.arch.name {
+		case "386", "amd64":
 			if strings.HasPrefix(op, "F") && (strings.HasSuffix(op, "D") || strings.HasSuffix(op, "DP")) {
 				// FMOVDP, FXCHD, etc
 				src = 8
@@ -477,6 +588,21 @@ func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr stri
 				src = 4
 			case 'D', 'Q':
 				src = 8
+			}
+		case "power64", "power64le":
+			// Strip standard suffixes to reveal size letter.
+			m := power64Suff.FindStringSubmatch(op)
+			if m != nil {
+				switch m[1][0] {
+				case 'B':
+					src = 1
+				case 'H':
+					src = 2
+				case 'W':
+					src = 4
+				case 'D':
+					src = 8
+				}
 			}
 		}
 	}

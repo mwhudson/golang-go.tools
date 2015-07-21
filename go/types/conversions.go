@@ -6,11 +6,11 @@
 
 package types
 
-import "code.google.com/p/go.tools/go/exact"
+import "golang.org/x/tools/go/exact"
 
 // Conversion type-checks the conversion T(x).
 // The result is in x.
-func (check *checker) conversion(x *operand, T Type) {
+func (check *Checker) conversion(x *operand, T Type) {
 	constArg := x.mode == constant
 
 	var ok bool
@@ -20,7 +20,7 @@ func (check *checker) conversion(x *operand, T Type) {
 		switch t := T.Underlying().(*Basic); {
 		case representableConst(x.val, check.conf, t.kind, &x.val):
 			ok = true
-		case x.isInteger() && isString(t):
+		case isInteger(x.typ) && isString(t):
 			codepoint := int64(-1)
 			if i, ok := exact.Int64Val(x.val); ok {
 				codepoint = i
@@ -54,7 +54,7 @@ func (check *checker) conversion(x *operand, T Type) {
 		//   use the default type (e.g., []byte("foo") should report string
 		//   not []byte as type for the constant "foo").
 		// - Keep untyped nil for untyped nil arguments.
-		if isInterface(T) || constArg && !isConstType(T) {
+		if IsInterface(T) || constArg && !isConstType(T) {
 			final = defaultType(x.typ)
 		}
 		check.updateExprType(x.expr, final, true)

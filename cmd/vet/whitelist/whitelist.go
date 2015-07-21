@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package whitelist defines exceptions for the vet tool.
-package whitelist
+package whitelist // import "golang.org/x/tools/cmd/vet/whitelist"
 
 // UnkeyedLiteral are types that are actually slices, but
 // syntactically, we cannot tell whether the Typ in pkg.Typ{1, 2, 3}
@@ -11,8 +11,8 @@ package whitelist
 // library's exported slice types.
 var UnkeyedLiteral = map[string]bool{
 	/*
-		find $GOROOT/src/pkg -type f | grep -v _test.go | xargs grep '^type.*\[\]' | \
-			grep -v ' map\[' | sed 's,/[^/]*go.type,,' | sed 's,.*src/pkg/,,' | \
+		find $GOROOT/src -type f | grep -v _test.go | xargs grep '^type.*\[\]' | \
+			grep -v ' map\[' | sed 's,/[^/]*go.type,,' | sed 's,.*src/,,' | \
 			sed 's, ,.,' |  sed 's, .*,,' | grep -v '\.[a-z]' | \
 			sort | awk '{ print "\"" $0 "\": true," }'
 	*/
@@ -39,6 +39,7 @@ var UnkeyedLiteral = map[string]bool{
 	// These image and image/color struct types are frozen. We will never add fields to them.
 	"image/color.Alpha16": true,
 	"image/color.Alpha":   true,
+	"image/color.CMYK":    true,
 	"image/color.Gray16":  true,
 	"image/color.Gray":    true,
 	"image/color.NRGBA64": true,

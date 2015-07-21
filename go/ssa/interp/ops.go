@@ -12,9 +12,9 @@ import (
 	"sync"
 	"unsafe"
 
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/types"
 )
 
 // If the target program panics, the interpreter panics with this type.
@@ -286,9 +286,7 @@ func lookup(instr *ssa.Lookup, x, idx value) value {
 			v = x.lookup(idx.(hashable))
 			ok = v != nil
 		}
-		if ok {
-			v = copyVal(v)
-		} else {
+		if !ok {
 			v = zero(instr.X.Type().Underlying().(*types.Map).Elem())
 		}
 		if instr.CommaOk {
@@ -844,7 +842,7 @@ func unop(instr *ssa.UnOp, x value) value {
 			return -x
 		}
 	case token.MUL:
-		return copyVal(*x.(*value)) // load
+		return load(deref(instr.X.Type()), x.(*value))
 	case token.NOT:
 		return !x.(bool)
 	case token.XOR:
@@ -891,7 +889,7 @@ func typeAssert(i *interpreter, instr *ssa.TypeAssert, itf iface) value {
 		err = checkInterface(i, idst, itf)
 
 	} else if types.Identical(itf.t, instr.AssertedType) {
-		v = copyVal(itf.v) // extract value
+		v = itf.v // extract value
 
 	} else {
 		err = fmt.Sprintf("interface conversion: interface is %s, not %s", itf.t, instr.AssertedType)
@@ -952,11 +950,13 @@ func callBuiltin(caller *frame, callpos token.Pos, fn *ssa.Builtin, args []value
 		// append([]T, ...[]T) []T
 		return append(args[0].([]value), args[1].([]value)...)
 
-	case "copy": // copy([]T, []T) int
-		if _, ok := args[1].(string); ok {
-			panic("copy([]byte, string) not yet implemented")
+	case "copy": // copy([]T, []T) int or copy([]byte, string) int
+		src := args[1]
+		if _, ok := src.(string); ok {
+			params := fn.Type().(*types.Signature).Params()
+			src = conv(params.At(0).Type(), params.At(1).Type(), src)
 		}
-		return copy(args[0].([]value), args[1].([]value))
+		return copy(args[0].([]value), src.([]value))
 
 	case "close": // close(chan T)
 		close(args[0].(chan value))
@@ -1059,6 +1059,16 @@ func callBuiltin(caller *frame, callpos token.Pos, fn *ssa.Builtin, args []value
 
 	case "recover":
 		return doRecover(caller)
+
+	case "ssa:wrapnilchk":
+		recv := args[0]
+		if recv.(*value) == nil {
+			recvType := args[1]
+			methodName := args[2]
+			panic(fmt.Sprintf("value method (%s).%s called using nil *%s pointer",
+				recvType, methodName, recvType))
+		}
+		return recv
 	}
 
 	panic("unknown built-in: " + fn.Name())

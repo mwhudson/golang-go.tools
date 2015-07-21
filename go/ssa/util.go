@@ -13,26 +13,13 @@ import (
 	"io"
 	"os"
 
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/ast/astutil"
+	"golang.org/x/tools/go/types"
 )
-
-func unreachable() {
-	panic("unreachable")
-}
 
 //// AST utilities
 
-// unparen returns e with any enclosing parentheses stripped.
-func unparen(e ast.Expr) ast.Expr {
-	for {
-		p, ok := e.(*ast.ParenExpr)
-		if !ok {
-			break
-		}
-		e = p.X
-	}
-	return e
-}
+func unparen(e ast.Expr) ast.Expr { return astutil.Unparen(e) }
 
 // isBlankIdent returns true iff e is an Ident with name "_".
 // They have no associated types.Object, and thus no type.
@@ -50,12 +37,19 @@ func isPointer(typ types.Type) bool {
 	return ok
 }
 
+func isInterface(T types.Type) bool { return types.IsInterface(T) }
+
 // deref returns a pointer's element type; otherwise it returns typ.
 func deref(typ types.Type) types.Type {
 	if p, ok := typ.Underlying().(*types.Pointer); ok {
 		return p.Elem()
 	}
 	return typ
+}
+
+// recvType returns the receiver type of method obj.
+func recvType(obj *types.Func) types.Type {
+	return obj.Type().(*types.Signature).Recv().Type()
 }
 
 // DefaultType returns the default "typed" type for an "untyped" type;
@@ -103,37 +97,23 @@ func logStack(format string, args ...interface{}) func() {
 	}
 }
 
-// callsRecover reports whether f contains a direct call to recover().
-func callsRecover(f *Function) bool {
-	for _, b := range f.Blocks {
-		for _, instr := range b.Instrs {
-			if call, ok := instr.(*Call); ok {
-				if blt, ok := call.Call.Value.(*Builtin); ok {
-					if blt.Name() == "recover" {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
 // newVar creates a 'var' for use in a types.Tuple.
 func newVar(name string, typ types.Type) *types.Var {
 	return types.NewParam(token.NoPos, nil, name, typ)
 }
 
-var (
-	lenObject  = types.Universe.Lookup("len").(*types.Builtin)
-	lenResults = types.NewTuple(newVar("", tInt))
-)
+// anonVar creates an anonymous 'var' for use in a types.Tuple.
+func anonVar(typ types.Type) *types.Var {
+	return newVar("", typ)
+}
+
+var lenResults = types.NewTuple(anonVar(tInt))
 
 // makeLen returns the len builtin specialized to type func(T)int.
 func makeLen(T types.Type) *Builtin {
-	lenParams := types.NewTuple(newVar("", T))
+	lenParams := types.NewTuple(anonVar(T))
 	return &Builtin{
-		object: lenObject,
-		sig:    types.NewSignature(nil, nil, lenParams, lenResults, false),
+		name: "len",
+		sig:  types.NewSignature(nil, lenParams, lenResults, false),
 	}
 }

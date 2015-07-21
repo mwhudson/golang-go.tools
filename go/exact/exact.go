@@ -11,7 +11,7 @@
 // values produce unknown values unless specified
 // otherwise.
 //
-package exact
+package exact // import "golang.org/x/tools/go/exact"
 
 import (
 	"fmt"
@@ -243,6 +243,22 @@ func Uint64Val(x Value) (uint64, bool) {
 		return 0, false
 	}
 	panic(fmt.Sprintf("%v not an Int", x))
+}
+
+// Float32Val is like Float64Val but for float32 instead of float64.
+func Float32Val(x Value) (float32, bool) {
+	switch x := x.(type) {
+	case int64Val:
+		f := float32(x)
+		return f, int64Val(f) == x
+	case intVal:
+		return ratToFloat32(new(big.Rat).SetFrac(x.val, int1))
+	case floatVal:
+		return ratToFloat32(x.val)
+	case unknownVal:
+		return 0, false
+	}
+	panic(fmt.Sprintf("%v not a Float", x))
 }
 
 // Float64Val returns the nearest Go float64 value of x and whether the result is exact;
@@ -544,14 +560,16 @@ func ord(x Value) int {
 	switch x.(type) {
 	default:
 		return 0
-	case int64Val:
+	case boolVal, stringVal:
 		return 1
-	case intVal:
+	case int64Val:
 		return 2
-	case floatVal:
+	case intVal:
 		return 3
-	case complexVal:
+	case floatVal:
 		return 4
+	case complexVal:
+		return 5
 	}
 }
 

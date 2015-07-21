@@ -42,7 +42,7 @@
 //
 // * os.Exit is implemented using panic, causing deferred functions to
 // run.
-package interp
+package interp // import "golang.org/x/tools/go/ssa/interp"
 
 import (
 	"fmt"
@@ -51,8 +51,8 @@ import (
 	"reflect"
 	"runtime"
 
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/types"
 )
 
 type continuation int
@@ -75,6 +75,7 @@ type methodSet map[string]*ssa.Function
 
 // State shared between all interpreted goroutines.
 type interpreter struct {
+	osArgs             []value              // the value of os.Args
 	prog               *ssa.Program         // the SSA program
 	globals            map[ssa.Value]*value // addresses of global variables (immutable)
 	mode               Mode                 // interpreter options
@@ -238,10 +239,10 @@ func visitInstr(fr *frame, instr ssa.Instruction) continuation {
 		panic(targetPanic{fr.get(instr.X)})
 
 	case *ssa.Send:
-		fr.get(instr.Chan).(chan value) <- copyVal(fr.get(instr.X))
+		fr.get(instr.Chan).(chan value) <- fr.get(instr.X)
 
 	case *ssa.Store:
-		*fr.get(instr.Addr).(*value) = copyVal(fr.get(instr.Val))
+		store(deref(instr.Addr.Type()), fr.get(instr.Addr).(*value), fr.get(instr.Val))
 
 	case *ssa.If:
 		succ := 1
@@ -306,10 +307,11 @@ func visitInstr(fr *frame, instr ssa.Instruction) continuation {
 
 	case *ssa.FieldAddr:
 		x := fr.get(instr.X)
+		// FIXME wrong!  &global.f must not change if we do *global = zero!
 		fr.env[instr] = &(*x.(*value)).(structure)[instr.Field]
 
 	case *ssa.Field:
-		fr.env[instr] = copyVal(fr.get(instr.X).(structure)[instr.Field])
+		fr.env[instr] = fr.get(instr.X).(structure)[instr.Field]
 
 	case *ssa.IndexAddr:
 		x := fr.get(instr.X)
@@ -324,7 +326,7 @@ func visitInstr(fr *frame, instr ssa.Instruction) continuation {
 		}
 
 	case *ssa.Index:
-		fr.env[instr] = copyVal(fr.get(instr.X).(array)[asInt(fr.get(instr.Index))])
+		fr.env[instr] = fr.get(instr.X).(array)[asInt(fr.get(instr.Index))]
 
 	case *ssa.Lookup:
 		fr.env[instr] = lookup(instr, fr.get(instr.X), fr.get(instr.Index))
@@ -435,7 +437,7 @@ func prepareCall(fr *frame, call *ssa.CallCommon) (fn value, args []value) {
 		} else {
 			fn = f
 		}
-		args = append(args, copyVal(recv.v))
+		args = append(args, recv.v)
 	}
 	for _, arg := range call.Args {
 		args = append(args, fr.get(arg))
@@ -489,7 +491,7 @@ func callSSA(i *interpreter, caller *frame, callpos token.Pos, fn *ssa.Function,
 		caller: caller, // for panic/recover
 		fn:     fn,
 	}
-	if fn.Enclosing == nil {
+	if fn.Parent() == nil {
 		name := fn.String()
 		if ext := externals[name]; ext != nil {
 			if i.mode&EnableTracing != 0 {
@@ -555,9 +557,6 @@ func runFrame(fr *frame) {
 		}
 		fr.runDefers()
 		fr.block = fr.fn.Recover
-		if fr.block == nil {
-			fr.result = zero(fr.fn.Signature.Results())
-		}
 	}()
 
 	for {
@@ -623,6 +622,30 @@ func setGlobal(i *interpreter, pkg *ssa.Package, name string, v value) {
 	panic("no global variable: " + pkg.Object.Path() + "." + name)
 }
 
+var environ []value
+
+func init() {
+	for _, s := range os.Environ() {
+		environ = append(environ, s)
+	}
+	environ = append(environ, "GOSSAINTERP=1")
+	environ = append(environ, "GOARCH="+runtime.GOARCH)
+}
+
+// deleteBodies delete the bodies of all standalone functions except the
+// specified ones.  A missing intrinsic leads to a clear runtime error.
+func deleteBodies(pkg *ssa.Package, except ...string) {
+	keep := make(map[string]bool)
+	for _, e := range except {
+		keep[e] = true
+	}
+	for _, mem := range pkg.Members {
+		if fn, ok := mem.(*ssa.Function); ok && !keep[fn.Name()] {
+			fn.Blocks = nil
+		}
+	}
+}
+
 // Interpret interprets the Go program whose main package is mainpkg.
 // mode specifies various interpreter options.  filename and args are
 // the initial values of os.Args for the target program.  sizes is the
@@ -648,6 +671,11 @@ func Interpret(mainpkg *ssa.Package, mode Mode, sizes types.Sizes, filename stri
 
 	initReflect(i)
 
+	i.osArgs = append(i.osArgs, filename)
+	for _, arg := range args {
+		i.osArgs = append(i.osArgs, arg)
+	}
+
 	for _, pkg := range i.prog.AllPackages() {
 		// Initialize global storage.
 		for _, m := range pkg.Members {
@@ -661,24 +689,15 @@ func Interpret(mainpkg *ssa.Package, mode Mode, sizes types.Sizes, filename stri
 		// Ad-hoc initialization for magic system variables.
 		switch pkg.Object.Path() {
 		case "syscall":
-			var envs []value
-			for _, s := range os.Environ() {
-				envs = append(envs, s)
-			}
-			envs = append(envs, "GOSSAINTERP=1")
-			envs = append(envs, "GOARCH="+runtime.GOARCH)
-			setGlobal(i, pkg, "envs", envs)
+			setGlobal(i, pkg, "envs", environ)
+
+		case "reflect":
+			deleteBodies(pkg, "DeepEqual", "deepValueEqual")
 
 		case "runtime":
 			sz := sizes.Sizeof(pkg.Object.Scope().Lookup("MemStats").Type())
 			setGlobal(i, pkg, "sizeof_C_MStats", uintptr(sz))
-
-		case "os":
-			Args := []value{filename}
-			for _, s := range args {
-				Args = append(Args, s)
-			}
-			setGlobal(i, pkg, "Args", Args)
+			deleteBodies(pkg, "GOROOT", "gogetenv")
 		}
 	}
 
@@ -699,7 +718,7 @@ func Interpret(mainpkg *ssa.Package, mode Mode, sizes types.Sizes, filename stri
 		case string:
 			fmt.Fprintln(os.Stderr, "panic:", p)
 		default:
-			fmt.Fprintf(os.Stderr, "panic: unexpected type: %T\n", p)
+			fmt.Fprintf(os.Stderr, "panic: unexpected type: %T: %v\n", p, p)
 		}
 
 		// TODO(adonovan): dump panicking interpreter goroutine?
