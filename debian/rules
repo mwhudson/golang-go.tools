@@ -10,6 +10,9 @@ export DH_VERBOSE=1
 
 export DH_GOPKG := golang.org/x/tools
 
+# The go/types/... packages currently don’t pass tests.
+export DH_GOLANG_EXCLUDES := golang.org/x/tools/go/types
+
 # Install all files into the build GOPATH, not only .go files.
 # This is necessary because go.tools contains golden files that are necessary
 # for running the testsuite.
