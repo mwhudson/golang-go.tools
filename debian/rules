@@ -57,7 +57,6 @@ override_dh_auto_install:
 	# Make scripts executable.
 	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/godoc/setup-godoc-app.bash
 	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/oracle/emacs-test.bash
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/bake.sh
 	# Replace embedded copy of jquery with a symlink.
 	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js && \
 	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js
