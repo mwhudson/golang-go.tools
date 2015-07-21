@@ -1,3 +1,12 @@
+golang-golang-x-tools (0.0~git20150716.0.87156cb-1) unstable; urgency=medium
+
+  * Rename source and binary package from golang-go.tools{,-dev} to
+    golang-golang-x-tools{,-dev}, following the policy outlined at
+    http://pkg-go.alioth.debian.org/packaging.html
+  * New upstream version
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 21 Jul 2015 10:36:10 +0200
+
 golang-go.tools (0.0~hg20140703-4) unstable; urgency=medium
 
   * Update debian/patches/0003-fix-tests.patch
