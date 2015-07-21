@@ -4,13 +4,14 @@
 
 // Package imports implements a Go pretty-printer (like package "go/format")
 // that also adds or removes import statements as necessary.
-package imports
+package imports // import "golang.org/x/tools/imports"
 
 import (
 	"bufio"
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -19,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"code.google.com/p/go.tools/astutil"
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 // Options specifies options for processing files.
@@ -88,6 +89,11 @@ func Process(filename string, src []byte, opt *Options) ([]byte, error) {
 	}
 	if len(spacesBefore) > 0 {
 		out = addImportSpaces(bytes.NewReader(out), spacesBefore)
+	}
+
+	out, err = format.Source(out)
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

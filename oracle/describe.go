@@ -9,15 +9,16 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"log"
 	"os"
 	"strings"
 
-	"code.google.com/p/go.tools/astutil"
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/types"
-	"code.google.com/p/go.tools/go/types/typeutil"
-	"code.google.com/p/go.tools/oracle/serial"
+	"golang.org/x/tools/go/ast/astutil"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/go/types/typeutil"
+	"golang.org/x/tools/oracle/serial"
 )
 
 // describe describes the syntax node denoted by the query position,
@@ -26,32 +27,52 @@ import (
 // - the definition of its referent (for identifiers) [now redundant]
 // - its type and method set (for an expression or type expression)
 //
-func describe(o *Oracle, qpos *QueryPos) (queryResult, error) {
+func describe(q *Query) error {
+	lconf := loader.Config{Build: q.Build}
+	allowErrors(&lconf)
+
+	if err := importQueryPackage(q.Pos, &lconf); err != nil {
+		return err
+	}
+
+	// Load/parse/type-check the program.
+	lprog, err := lconf.Load()
+	if err != nil {
+		return err
+	}
+	q.Fset = lprog.Fset
+
+	qpos, err := parseQueryPos(lprog, q.Pos, true) // (need exact pos)
+	if err != nil {
+		return err
+	}
+
 	if false { // debugging
-		fprintf(os.Stderr, o.fset, qpos.path[0], "you selected: %s %s",
+		fprintf(os.Stderr, lprog.Fset, qpos.path[0], "you selected: %s %s",
 			astutil.NodeDescription(qpos.path[0]), pathToString(qpos.path))
 	}
 
 	path, action := findInterestingNode(qpos.info, qpos.path)
 	switch action {
 	case actionExpr:
-		return describeValue(o, qpos, path)
+		q.result, err = describeValue(qpos, path)
 
 	case actionType:
-		return describeType(o, qpos, path)
+		q.result, err = describeType(qpos, path)
 
 	case actionPackage:
-		return describePackage(o, qpos, path)
+		q.result, err = describePackage(qpos, path)
 
 	case actionStmt:
-		return describeStmt(o, qpos, path)
+		q.result, err = describeStmt(qpos, path)
 
 	case actionUnknown:
-		return &describeUnknownResult{path[0]}, nil
+		q.result = &describeUnknownResult{path[0]}
 
 	default:
 		panic(action) // unreachable
 	}
+	return err
 }
 
 type describeUnknownResult struct {
@@ -180,7 +201,8 @@ func findInterestingNode(pkginfo *loader.PackageInfo, path []ast.Node) ([]ast.No
 			return path, actionExpr
 
 		case *ast.SelectorExpr:
-			if pkginfo.ObjectOf(n.Sel) == nil {
+			// TODO(adonovan): use Selections info directly.
+			if pkginfo.Uses[n.Sel] == nil {
 				// TODO(adonovan): is this reachable?
 				return path, actionUnknown
 			}
@@ -213,13 +235,6 @@ func findInterestingNode(pkginfo *loader.PackageInfo, path []ast.Node) ([]ast.No
 				return path, actionExpr
 
 			case *types.Func:
-				// For f in 'interface {f()}', return the interface type, for now.
-				if _, ok := path[1].(*ast.Field); ok {
-					_ = path[2].(*ast.FieldList) // assertion
-					if _, ok := path[3].(*ast.InterfaceType); ok {
-						return path[3:], actionType
-					}
-				}
 				return path, actionExpr
 
 			case *types.Builtin:
@@ -267,15 +282,15 @@ func findInterestingNode(pkginfo *loader.PackageInfo, path []ast.Node) ([]ast.No
 				return path[1:], actionPackage
 
 			default:
-				// e.g. blank identifier (go/types bug?)
-				// or y in "switch y := x.(type)" (go/types bug?)
+				// e.g. blank identifier
+				// or y in "switch y := x.(type)"
 				// or code in a _test.go file that's not part of the package.
-				fmt.Printf("unknown reference %s in %T\n", n, path[1])
+				log.Printf("unknown reference %s in %T\n", n, path[1])
 				return path, actionUnknown
 			}
 
 		case *ast.StarExpr:
-			if pkginfo.IsType(n) {
+			if pkginfo.Types[n].IsType() {
 				return path, actionType
 			}
 			return path, actionExpr
@@ -293,7 +308,7 @@ func findInterestingNode(pkginfo *loader.PackageInfo, path []ast.Node) ([]ast.No
 	return nil, actionUnknown // unreachable
 }
 
-func describeValue(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeValueResult, error) {
+func describeValue(qpos *queryPos, path []ast.Node) (*describeValueResult, error) {
 	var expr ast.Expr
 	var obj types.Object
 	switch n := path[0].(type) {
@@ -311,7 +326,7 @@ func describeValue(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeValueRe
 	}
 
 	typ := qpos.info.TypeOf(expr)
-	constVal := qpos.info.ValueOf(expr)
+	constVal := qpos.info.Types[expr].Value
 
 	return &describeValueResult{
 		qpos:     qpos,
@@ -323,7 +338,7 @@ func describeValue(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeValueRe
 }
 
 type describeValueResult struct {
-	qpos     *QueryPos
+	qpos     *queryPos
 	expr     ast.Expr     // query node
 	typ      types.Type   // type of expression
 	constVal exact.Value  // value of expression, if constant
@@ -350,10 +365,10 @@ func (r *describeValueResult) display(printf printfFunc) {
 	if r.obj != nil {
 		if r.obj.Pos() == r.expr.Pos() {
 			// defining ident
-			printf(r.expr, "definition of %s%s%s", prefix, r.qpos.ObjectString(r.obj), suffix)
+			printf(r.expr, "definition of %s%s%s", prefix, r.qpos.objectString(r.obj), suffix)
 		} else {
 			// referring ident
-			printf(r.expr, "reference to %s%s%s", prefix, r.qpos.ObjectString(r.obj), suffix)
+			printf(r.expr, "reference to %s%s%s", prefix, r.qpos.objectString(r.obj), suffix)
 			if def := r.obj.Pos(); def != token.NoPos {
 				printf(def, "defined here")
 			}
@@ -365,7 +380,7 @@ func (r *describeValueResult) display(printf printfFunc) {
 			printf(r.expr, "%s%s", desc, suffix)
 		} else {
 			// non-constant expression
-			printf(r.expr, "%s of type %s", desc, r.qpos.TypeString(r.typ))
+			printf(r.expr, "%s of type %s", desc, r.qpos.typeString(r.typ))
 		}
 	}
 }
@@ -384,7 +399,7 @@ func (r *describeValueResult) toSerial(res *serial.Result, fset *token.FileSet) 
 		Pos:    fset.Position(r.expr.Pos()).String(),
 		Detail: "value",
 		Value: &serial.DescribeValue{
-			Type:   r.qpos.TypeString(r.typ),
+			Type:   r.qpos.typeString(r.typ),
 			Value:  value,
 			ObjPos: objpos,
 		},
@@ -393,7 +408,7 @@ func (r *describeValueResult) toSerial(res *serial.Result, fset *token.FileSet) 
 
 // ---- TYPE ------------------------------------------------------------
 
-func describeType(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeTypeResult, error) {
+func describeType(qpos *queryPos, path []ast.Node) (*describeTypeResult, error) {
 	var description string
 	var t types.Type
 	switch n := path[0].(type) {
@@ -420,14 +435,12 @@ func describeType(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeTypeResu
 		return nil, fmt.Errorf("unexpected AST for type: %T", n)
 	}
 
-	description = description + "type " + qpos.TypeString(t)
+	description = description + "type " + qpos.typeString(t)
 
 	// Show sizes for structs and named types (it's fairly obvious for others).
 	switch t.(type) {
 	case *types.Named, *types.Struct:
-		// TODO(adonovan): use o.imp.Config().TypeChecker.Sizes when
-		// we add the Config() method (needs some thought).
-		szs := types.StdSizes{8, 8}
+		szs := types.StdSizes{8, 8} // assume amd64
 		description = fmt.Sprintf("%s (size %d, align %d)", description,
 			szs.Sizeof(t), szs.Alignof(t))
 	}
@@ -442,7 +455,7 @@ func describeType(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeTypeResu
 }
 
 type describeTypeResult struct {
-	qpos        *QueryPos
+	qpos        *queryPos
 	node        ast.Node
 	description string
 	typ         types.Type
@@ -454,7 +467,7 @@ func (r *describeTypeResult) display(printf printfFunc) {
 
 	// Show the underlying type for a reference to a named type.
 	if nt, ok := r.typ.(*types.Named); ok && r.node.Pos() != nt.Obj().Pos() {
-		printf(nt.Obj(), "defined as %s", r.qpos.TypeString(nt.Underlying()))
+		printf(nt.Obj(), "defined as %s", r.qpos.typeString(nt.Underlying()))
 	}
 
 	// Print the method set, if the type kind is capable of bearing methods.
@@ -463,7 +476,10 @@ func (r *describeTypeResult) display(printf printfFunc) {
 		if len(r.methods) > 0 {
 			printf(r.node, "Method set:")
 			for _, meth := range r.methods {
-				printf(meth.Obj(), "\t%s", r.qpos.SelectionString(meth))
+				// TODO(adonovan): print these relative
+				// to the owning package, not the
+				// query package.
+				printf(meth.Obj(), "\t%s", r.qpos.selectionString(meth))
 			}
 		} else {
 			printf(r.node, "No methods.")
@@ -482,7 +498,7 @@ func (r *describeTypeResult) toSerial(res *serial.Result, fset *token.FileSet) {
 		Pos:    fset.Position(r.node.Pos()).String(),
 		Detail: "type",
 		Type: &serial.DescribeType{
-			Type:    r.qpos.TypeString(r.typ),
+			Type:    r.qpos.typeString(r.typ),
 			NamePos: namePos,
 			NameDef: nameDef,
 			Methods: methodsToSerial(r.qpos.info.Pkg, r.methods, fset),
@@ -492,14 +508,19 @@ func (r *describeTypeResult) toSerial(res *serial.Result, fset *token.FileSet) {
 
 // ---- PACKAGE ------------------------------------------------------------
 
-func describePackage(o *Oracle, qpos *QueryPos, path []ast.Node) (*describePackageResult, error) {
+func describePackage(qpos *queryPos, path []ast.Node) (*describePackageResult, error) {
 	var description string
 	var pkg *types.Package
 	switch n := path[0].(type) {
 	case *ast.ImportSpec:
-		pkgname := qpos.info.ImportSpecPkg(n)
-		description = fmt.Sprintf("import of package %q", pkgname.Pkg().Path())
-		pkg = pkgname.Pkg()
+		var pkgname *types.PkgName
+		if n.Name != nil {
+			pkgname = qpos.info.Defs[n.Name].(*types.PkgName)
+		} else if p := qpos.info.Implicits[n]; p != nil {
+			pkgname = p.(*types.PkgName)
+		}
+		pkg = pkgname.Imported()
+		description = fmt.Sprintf("import of package %q", pkg.Path())
 
 	case *ast.Ident:
 		if _, isDef := path[1].(*ast.File); isDef {
@@ -507,9 +528,9 @@ func describePackage(o *Oracle, qpos *QueryPos, path []ast.Node) (*describePacka
 			pkg = qpos.info.Pkg
 			description = fmt.Sprintf("definition of package %q", pkg.Path())
 		} else {
-			// e.g. import id
+			// e.g. import id "..."
 			//  or  id.F()
-			pkg = qpos.info.ObjectOf(n).Pkg()
+			pkg = qpos.info.ObjectOf(n).(*types.PkgName).Imported()
 			description = fmt.Sprintf("reference to package %q", pkg.Path())
 		}
 
@@ -539,7 +560,7 @@ func describePackage(o *Oracle, qpos *QueryPos, path []ast.Node) (*describePacka
 		}
 	}
 
-	return &describePackageResult{o.fset, path[0], description, pkg, members}, nil
+	return &describePackageResult{qpos.fset, path[0], description, pkg, members}, nil
 }
 
 type describePackageResult struct {
@@ -569,20 +590,21 @@ func (r *describePackageResult) display(printf printfFunc) {
 	for _, mem := range r.members {
 		printf(mem.obj, "\t%s", formatMember(mem.obj, maxname))
 		for _, meth := range mem.methods {
-			printf(meth.Obj(), "\t\t%s", types.SelectionString(r.pkg, meth))
+			printf(meth.Obj(), "\t\t%s", types.SelectionString(meth, types.RelativeTo(r.pkg)))
 		}
 	}
 }
 
 func formatMember(obj types.Object, maxname int) string {
+	qualifier := types.RelativeTo(obj.Pkg())
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%-5s %-*s", tokenOf(obj), maxname, obj.Name())
 	switch obj := obj.(type) {
 	case *types.Const:
-		fmt.Fprintf(&buf, " %s = %s", types.TypeString(obj.Pkg(), obj.Type()), obj.Val().String())
+		fmt.Fprintf(&buf, " %s = %s", types.TypeString(obj.Type(), qualifier), obj.Val().String())
 
 	case *types.Func:
-		fmt.Fprintf(&buf, " %s", types.TypeString(obj.Pkg(), obj.Type()))
+		fmt.Fprintf(&buf, " %s", types.TypeString(obj.Type(), qualifier))
 
 	case *types.TypeName:
 		// Abbreviate long aggregate type names.
@@ -598,13 +620,13 @@ func formatMember(obj types.Object, maxname int) string {
 			}
 		}
 		if abbrev == "" {
-			fmt.Fprintf(&buf, " %s", types.TypeString(obj.Pkg(), obj.Type().Underlying()))
+			fmt.Fprintf(&buf, " %s", types.TypeString(obj.Type().Underlying(), qualifier))
 		} else {
 			fmt.Fprintf(&buf, " %s", abbrev)
 		}
 
 	case *types.Var:
-		fmt.Fprintf(&buf, " %s", types.TypeString(obj.Pkg(), obj.Type()))
+		fmt.Fprintf(&buf, " %s", types.TypeString(obj.Type(), qualifier))
 	}
 	return buf.String()
 }
@@ -658,11 +680,11 @@ func tokenOf(o types.Object) string {
 
 // ---- STATEMENT ------------------------------------------------------------
 
-func describeStmt(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeStmtResult, error) {
+func describeStmt(qpos *queryPos, path []ast.Node) (*describeStmtResult, error) {
 	var description string
 	switch n := path[0].(type) {
 	case *ast.Ident:
-		if qpos.info.ObjectOf(n).Pos() == n.Pos() {
+		if qpos.info.Defs[n] != nil {
 			description = "labelled statement"
 		} else {
 			description = "reference to labelled statement"
@@ -672,7 +694,7 @@ func describeStmt(o *Oracle, qpos *QueryPos, path []ast.Node) (*describeStmtResu
 		// Nothing much to say about statements.
 		description = astutil.NodeDescription(n)
 	}
-	return &describeStmtResult{o.fset, path[0], description}, nil
+	return &describeStmtResult{qpos.fset, path[0], description}, nil
 }
 
 type describeStmtResult struct {
@@ -725,12 +747,17 @@ func isAccessibleFrom(obj types.Object, pkg *types.Package) bool {
 }
 
 func methodsToSerial(this *types.Package, methods []*types.Selection, fset *token.FileSet) []serial.DescribeMethod {
+	qualifier := types.RelativeTo(this)
 	var jmethods []serial.DescribeMethod
 	for _, meth := range methods {
-		jmethods = append(jmethods, serial.DescribeMethod{
-			Name: types.SelectionString(this, meth),
-			Pos:  fset.Position(meth.Obj().Pos()).String(),
-		})
+		var ser serial.DescribeMethod
+		if meth != nil { // may contain nils when called by implements (on a method)
+			ser = serial.DescribeMethod{
+				Name: types.SelectionString(meth, qualifier),
+				Pos:  fset.Position(meth.Obj().Pos()).String(),
+			}
+		}
+		jmethods = append(jmethods, ser)
 	}
 	return jmethods
 }

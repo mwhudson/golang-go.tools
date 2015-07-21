@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package ssautil
+package ssautil // import "golang.org/x/tools/go/ssa/ssautil"
 
-import "code.google.com/p/go.tools/go/ssa"
+import "golang.org/x/tools/go/ssa"
 
 // This file defines utilities for visiting the SSA representation of
 // a Program.
@@ -41,7 +41,7 @@ func (visit *visitor) program() {
 			}
 		}
 	}
-	for _, T := range visit.prog.TypesWithMethodSets() {
+	for _, T := range visit.prog.RuntimeTypes() {
 		mset := visit.prog.MethodSets.MethodSet(T)
 		for i, n := 0, mset.Len(); i < n; i++ {
 			visit.function(visit.prog.Method(mset.At(i)))

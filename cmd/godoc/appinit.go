@@ -13,12 +13,13 @@ import (
 	"archive/zip"
 	"log"
 	"path"
+	"regexp"
 
-	"code.google.com/p/go.tools/godoc"
-	"code.google.com/p/go.tools/godoc/static"
-	"code.google.com/p/go.tools/godoc/vfs"
-	"code.google.com/p/go.tools/godoc/vfs/mapfs"
-	"code.google.com/p/go.tools/godoc/vfs/zipfs"
+	"golang.org/x/tools/godoc"
+	"golang.org/x/tools/godoc/static"
+	"golang.org/x/tools/godoc/vfs"
+	"golang.org/x/tools/godoc/vfs/mapfs"
+	"golang.org/x/tools/godoc/vfs/zipfs"
 )
 
 func init() {
@@ -49,6 +50,7 @@ func init() {
 	if err := corpus.Init(); err != nil {
 		log.Fatal(err)
 	}
+	corpus.IndexDirectory = indexDirectoryDefault
 	go corpus.RunIndexer()
 
 	pres = godoc.NewPresentation(corpus)
@@ -56,6 +58,7 @@ func init() {
 	pres.ShowPlayground = true
 	pres.ShowExamples = true
 	pres.DeclLinks = true
+	pres.NotesRx = regexp.MustCompile("BUG")
 
 	readTemplates(pres, true)
 	registerHandlers(pres)

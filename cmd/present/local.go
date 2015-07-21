@@ -18,11 +18,11 @@ import (
 	"runtime"
 	"strings"
 
-	"code.google.com/p/go.tools/playground/socket"
-	"code.google.com/p/go.tools/present"
+	"golang.org/x/tools/playground/socket"
+	"golang.org/x/tools/present"
 )
 
-const basePkg = "code.google.com/p/go.tools/cmd/present"
+const basePkg = "golang.org/x/tools/cmd/present"
 
 var basePath string
 
@@ -42,6 +42,10 @@ func main() {
 			os.Exit(1)
 		}
 		basePath = p.Dir
+	}
+	err := initTemplates(basePath)
+	if err != nil {
+		log.Fatalf("Failed to parse templates: %v", err)
 	}
 
 	ln, err := net.Listen("tcp", *httpAddr)

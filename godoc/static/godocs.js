@@ -14,6 +14,19 @@
 (function() {
 'use strict';
 
+// Mobile-friendly topbar menu
+$(function() {
+  var menu = $('#menu');
+  var menuButton = $('#menu-button');
+  var menuButtonArrow = $('#menu-button-arrow');
+  menuButton.click(function(event) {
+    menu.toggleClass('menu-visible');
+    menuButtonArrow.toggleClass('vertical-flip');
+    event.preventDefault();
+    return false;
+  });
+});
+
 function bindSearchEvents() {
 
   var search = $('#search');
@@ -65,7 +78,7 @@ function generateTOC() {
     if ($(node).is('h2')) {
       item = $('<dt/>');
     } else { // h3
-      item = $('<dd/>');
+      item = $('<dd class="indent"/>');
     }
     item.append(link);
     toc_items.push(item);
@@ -152,7 +165,7 @@ function setupDropdownPlayground() {
       'runEl': $('.run', div),
       'fmtEl': $('.fmt', div),
       'shareEl': $('.share', div),
-      'shareRedirect': 'http://play.golang.org/p/'
+      'shareRedirect': '//play.golang.org/p/'
     });
   },
   function() {
@@ -176,7 +189,7 @@ function setupInlinePlayground() {
 				'runEl':    $('.run', el),
 				'fmtEl':    $('.fmt', el),
 				'shareEl':  $('.share', el),
-				'shareRedirect': 'http://play.golang.org/p/'
+				'shareRedirect': '//play.golang.org/p/'
 			});
 
 			// Make the code textarea resize to fit content.
@@ -232,15 +245,6 @@ function toggleHash() {
     }
 }
 
-function addPlusButtons() {
-  var po = document.createElement('script');
-  po.type = 'text/javascript';
-  po.async = true;
-  po.src = 'https://apis.google.com/js/platform.js';
-  var s = document.getElementsByTagName('script')[0];
-  s.parentNode.insertBefore(po, s);
-}
-
 $(document).ready(function() {
   bindSearchEvents();
   generateTOC();
@@ -256,7 +260,6 @@ $(document).ready(function() {
   setupTypeInfo();
   setupCallgraphs();
   toggleHash();
-  addPlusButtons();
 
   // godoc.html defines window.initFuncs in the <head> tag, and root.html and
   // codewalk.js push their on-page-ready functions to the list.
@@ -451,7 +454,7 @@ function setupCallgraphs() {
   document.getElementById("pkg-callgraph").style.display = "block";
 
   var treeviews = document.getElementsByClassName("treeview");
-  for (var i in treeviews) {
+  for (var i = 0; i < treeviews.length; i++) {
     var tree = treeviews[i];
     if (tree.id == null || tree.id.indexOf("callgraph-") != 0) {
       continue;

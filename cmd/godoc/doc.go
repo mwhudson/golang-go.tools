@@ -137,8 +137,10 @@ one may run godoc as follows:
 
 Godoc documentation is converted to HTML or to text using the go/doc package;
 see http://golang.org/pkg/go/doc/#ToHTML for the exact rules.
+Godoc also shows example code that is runnable by the testing package;
+see http://golang.org/pkg/testing/#hdr-Examples for the conventions.
 See "Godoc: documenting Go code" for how to write good comments for godoc:
 http://golang.org/doc/articles/godoc_documenting_go_code.html
 
 */
-package main
+package main // import "golang.org/x/tools/cmd/godoc"

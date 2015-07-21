@@ -44,18 +44,18 @@ import (
 	"runtime"
 	"strings"
 
-	"code.google.com/p/go.tools/godoc"
-	"code.google.com/p/go.tools/godoc/analysis"
-	"code.google.com/p/go.tools/godoc/static"
-	"code.google.com/p/go.tools/godoc/vfs"
-	"code.google.com/p/go.tools/godoc/vfs/gatefs"
-	"code.google.com/p/go.tools/godoc/vfs/mapfs"
-	"code.google.com/p/go.tools/godoc/vfs/zipfs"
+	"golang.org/x/tools/godoc"
+	"golang.org/x/tools/godoc/analysis"
+	"golang.org/x/tools/godoc/static"
+	"golang.org/x/tools/godoc/vfs"
+	"golang.org/x/tools/godoc/vfs/gatefs"
+	"golang.org/x/tools/godoc/vfs/mapfs"
+	"golang.org/x/tools/godoc/vfs/zipfs"
 )
 
 const (
 	defaultAddr = ":6060" // default webserver address
-	toolsPath   = "code.google.com/p/go.tools/cmd/"
+	toolsPath   = "golang.org/x/tools/cmd/"
 )
 
 var (
@@ -95,9 +95,9 @@ var (
 	declLinks      = flag.Bool("links", true, "link identifiers to their declarations")
 
 	// search index
-	indexEnabled = flag.Bool("index", false, "enable search index")
-	indexFiles   = flag.String("index_files", "", "glob pattern specifying index files;"+
-		"if not empty, the index is read from these files in sorted order")
+	indexEnabled  = flag.Bool("index", false, "enable search index")
+	indexFiles    = flag.String("index_files", "", "glob pattern specifying index files; if not empty, the index is read from these files in sorted order")
+	indexInterval = flag.Duration("index_interval", 0, "interval of indexing; 0 for default (5m), negative to only index once at startup")
 	maxResults    = flag.Int("maxresults", 10000, "maximum number of full text search results shown")
 	indexThrottle = flag.Float64("index_throttle", 0.75, "index throttle value; 0.0 = no time allocated, 1.0 = full throttle")
 
@@ -173,7 +173,8 @@ func main() {
 	// Determine file system to use.
 	if *zipfile == "" {
 		// use file system of underlying OS
-		fs.Bind("/", gatefs.New(vfs.OS(*goroot), fsGate), "/", vfs.BindReplace)
+		rootfs := gatefs.New(vfs.OS(*goroot), fsGate)
+		fs.Bind("/", rootfs, "/", vfs.BindReplace)
 	} else {
 		// use file system specified via .zip file (path separator must be '/')
 		rc, err := zip.OpenReader(*zipfile)
@@ -191,7 +192,7 @@ func main() {
 
 	// Bind $GOPATH trees into Go root.
 	for _, p := range filepath.SplitList(build.Default.GOPATH) {
-		fs.Bind("/src/pkg", gatefs.New(vfs.OS(p), fsGate), "/src", vfs.BindAfter)
+		fs.Bind("/src", gatefs.New(vfs.OS(p), fsGate), "/src", vfs.BindAfter)
 	}
 
 	httpMode := *httpAddr != ""
@@ -218,7 +219,9 @@ func main() {
 		corpus.IndexFullText = false
 	}
 	corpus.IndexFiles = *indexFiles
+	corpus.IndexDirectory = indexDirectoryDefault
 	corpus.IndexThrottle = *indexThrottle
+	corpus.IndexInterval = *indexInterval
 	if *writeIndex {
 		corpus.IndexThrottle = 1.0
 		corpus.IndexEnabled = true

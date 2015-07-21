@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	_ "code.google.com/p/go.tools/go/gcimporter"
-	. "code.google.com/p/go.tools/go/types"
+	_ "golang.org/x/tools/go/gcimporter"
+	. "golang.org/x/tools/go/types"
 )
 
 var (
@@ -32,7 +32,9 @@ var (
 )
 
 func TestStdlib(t *testing.T) {
-	walkDirs(t, filepath.Join(runtime.GOROOT(), "src/pkg"))
+	skipSpecialPlatforms(t)
+
+	walkDirs(t, filepath.Join(runtime.GOROOT(), "src"))
 	if testing.Verbose() {
 		fmt.Println(pkgCount, "packages typechecked in", time.Since(start))
 	}
@@ -116,23 +118,37 @@ func testTestDir(t *testing.T, path string, ignore ...string) {
 }
 
 func TestStdTest(t *testing.T) {
+	skipSpecialPlatforms(t)
+
+	// test/recover4.go is only built for Linux and Darwin.
+	// TODO(gri) Remove once tests consider +build tags (issue 10370).
+	if runtime.GOOS != "linux" || runtime.GOOS != "darwin" {
+		return
+	}
+
 	testTestDir(t, filepath.Join(runtime.GOROOT(), "test"),
 		"cmplxdivide.go", // also needs file cmplxdivide1.go - ignore
 		"sigchld.go",     // don't work on Windows; testTestDir should consult build tags
-		"float_lit2.go",  // TODO(gri) float32 constant conversion requires (missing) Rat.Float32
 	)
 }
 
 func TestStdFixed(t *testing.T) {
+	skipSpecialPlatforms(t)
+
 	testTestDir(t, filepath.Join(runtime.GOROOT(), "test", "fixedbugs"),
 		"bug248.go", "bug302.go", "bug369.go", // complex test instructions - ignore
-		"bug459.go",    // possibly incorrect test - see issue 6703 (pending spec clarification)
-		"issue3924.go", // possibly incorrect test - see issue 6671 (pending spec clarification)
-		"issue6889.go", // gc-specific test
+		"bug459.go",      // possibly incorrect test - see issue 6703 (pending spec clarification)
+		"issue3924.go",   // possibly incorrect test - see issue 6671 (pending spec clarification)
+		"issue6889.go",   // gc-specific test
+		"issue7746.go",   // large constants - consumes too much memory
+		"issue11326.go",  // large constants
+		"issue11326b.go", // large constants
 	)
 }
 
 func TestStdKen(t *testing.T) {
+	skipSpecialPlatforms(t)
+
 	testTestDir(t, filepath.Join(runtime.GOROOT(), "test", "ken"))
 }
 
@@ -174,8 +190,25 @@ func typecheck(t *testing.T, path string, filenames []string) {
 	// typecheck package files
 	var conf Config
 	conf.Error = func(err error) { t.Error(err) }
-	conf.Check(path, fset, files, nil)
+	info := Info{Uses: make(map[*ast.Ident]Object)}
+	conf.Check(path, fset, files, &info)
 	pkgCount++
+
+	// Perform checks of API invariants.
+
+	// All Objects have a package, except predeclared ones.
+	errorError := Universe.Lookup("error").Type().Underlying().(*Interface).ExplicitMethod(0) // (error).Error
+	for id, obj := range info.Uses {
+		predeclared := obj == Universe.Lookup(obj.Name()) || obj == errorError
+		if predeclared == (obj.Pkg() != nil) {
+			posn := fset.Position(id.Pos())
+			if predeclared {
+				t.Errorf("%s: predeclared object with package: %s", posn, obj)
+			} else {
+				t.Errorf("%s: user-defined object without package: %s", posn, obj)
+			}
+		}
+	}
 }
 
 // pkgFilenames returns the list of package filenames for the given directory.

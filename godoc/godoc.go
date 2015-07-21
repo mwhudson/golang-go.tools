@@ -7,7 +7,7 @@
 //
 // This package comment will evolve over time as this package splits
 // into smaller pieces.
-package godoc
+package godoc // import "golang.org/x/tools/godoc"
 
 import (
 	"bytes"
@@ -98,6 +98,9 @@ func (p *Presentation) initFuncMap() {
 
 		// formatting of Notes
 		"noteTitle": noteTitle,
+
+		// Number operation
+		"multiply": multiply,
 	}
 	if p.URLForSrc != nil {
 		p.funcMap["srcLink"] = p.URLForSrc
@@ -109,6 +112,8 @@ func (p *Presentation) initFuncMap() {
 		p.funcMap["queryLink"] = p.URLForSrcQuery
 	}
 }
+
+func multiply(a, b int) int { return a * b }
 
 func filenameFunc(path string) string {
 	_, localname := pathpkg.Split(path)
@@ -303,11 +308,12 @@ func (info *PageInfo) IsEmpty() bool {
 }
 
 func pkgLinkFunc(path string) string {
-	relpath := path[1:]
 	// because of the irregular mapping under goroot
 	// we need to correct certain relative paths
-	relpath = strings.TrimPrefix(relpath, "src/pkg/")
-	return "pkg/" + relpath // remove trailing '/' for relative URL
+	path = strings.TrimPrefix(path, "/")
+	path = strings.TrimPrefix(path, "src/")
+	path = strings.TrimPrefix(path, "pkg/")
+	return "pkg/" + path
 }
 
 func newPosLink_urlFunc(srcPosLinkFunc func(s string, line, low, high int) string) func(info *PageInfo, n interface{}) string {
@@ -368,8 +374,8 @@ func srcPosLinkFunc(s string, line, low, high int) string {
 
 func srcLinkFunc(s string) string {
 	s = pathpkg.Clean("/" + s)
-	if !strings.HasPrefix(s, "/src/pkg/") {
-		s = "/src/pkg" + s
+	if !strings.HasPrefix(s, "/src/") {
+		s = "/src" + s
 	}
 	return s
 }
@@ -388,8 +394,7 @@ func queryLinkFunc(s, query string, line int) string {
 }
 
 func docLinkFunc(s string, ident string) string {
-	s = strings.TrimPrefix(s, "/src")
-	return pathpkg.Clean("/"+s) + "/#" + ident
+	return pathpkg.Clean("/pkg/"+s) + "/#" + ident
 }
 
 func (p *Presentation) example_textFunc(info *PageInfo, funcName, indent string) string {

@@ -16,10 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/ssa/interp"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/interp"
+	"golang.org/x/tools/go/ssa/ssautil"
+	"golang.org/x/tools/go/types"
 )
 
 // Each line contains a space-separated list of $GOROOT/test/
@@ -135,26 +136,28 @@ var gorootTestTests = []string{
 // These are files in go.tools/go/ssa/interp/testdata/.
 var testdataTests = []string{
 	"boundmeth.go",
+	"complit.go",
 	"coverage.go",
+	"defer.go",
 	"fieldprom.go",
 	"ifaceconv.go",
 	"ifaceprom.go",
 	"initorder.go",
 	"methprom.go",
 	"mrvchain.go",
+	"range.go",
 	"recover.go",
+	"reflect.go",
+	"static.go",
 	"callstack.go",
 }
 
-// These are files and packages in $GOROOT/src/pkg/.
-var gorootSrcPkgTests = []string{
+// These are files and packages in $GOROOT/src/.
+var gorootSrcTests = []string{
 	"encoding/ascii85",
-	"encoding/csv",
 	"encoding/hex",
-	"encoding/pem",
-	"hash/crc32",
-	// "testing", // TODO(adonovan): implement runtime.Goexit correctly
-	"text/scanner",
+	// "encoding/pem", // TODO(adonovan): implement (reflect.Value).SetString
+	// "testing",      // TODO(adonovan): implement runtime.Goexit correctly
 	"unicode",
 
 	// Too slow:
@@ -162,10 +165,13 @@ var gorootSrcPkgTests = []string{
 	// "hash/adler32",
 
 	// TODO(adonovan): packages with Examples require os.Pipe (unimplemented):
+	// "hash/crc32",
 	// "unicode/utf8",
 	// "log",
 	// "path",
 	// "flag",
+	// "encoding/csv"
+	// "text/scanner"
 }
 
 type successPredicate func(exitcode int, output string) error
@@ -183,7 +189,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 		inputs = append(inputs, i)
 	}
 
-	conf := loader.Config{SourceImports: true}
+	var conf loader.Config
 	if _, err := conf.FromArgs(inputs, true); err != nil {
 		t.Errorf("FromArgs(%s) failed: %s", inputs, err)
 		return false
@@ -204,7 +210,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 		interp.CapturedOutput = nil
 	}()
 
-	hint = fmt.Sprintf("To dump SSA representation, run:\n%% go build code.google.com/p/go.tools/cmd/ssadump && ./ssadump -build=CFP %s\n", input)
+	hint = fmt.Sprintf("To dump SSA representation, run:\n%% go build golang.org/x/tools/cmd/ssadump && ./ssadump -build=CFP %s\n", input)
 
 	iprog, err := conf.Load()
 	if err != nil {
@@ -212,12 +218,15 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 		return false
 	}
 
-	prog := ssa.Create(iprog, ssa.SanityCheckFunctions)
+	prog := ssautil.CreateProgram(iprog, ssa.SanityCheckFunctions)
 	prog.BuildAll()
 
 	var mainPkg *ssa.Package
 	var initialPkgs []*ssa.Package
 	for _, info := range iprog.InitialPackages() {
+		if info.Pkg.Path() == "runtime" {
+			continue // not an initial package
+		}
 		p := prog.Package(info.Pkg)
 		initialPkgs = append(initialPkgs, p)
 		if mainPkg == nil && p.Func("main") != nil {
@@ -240,7 +249,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 	var out bytes.Buffer
 	interp.CapturedOutput = &out
 
-	hint = fmt.Sprintf("To trace execution, run:\n%% go build code.google.com/p/go.tools/cmd/ssadump && ./ssadump -build=C -run --interp=T %s\n", input)
+	hint = fmt.Sprintf("To trace execution, run:\n%% go build golang.org/x/tools/cmd/ssadump && ./ssadump -build=C -run --interp=T %s\n", input)
 	exitCode := interp.Interpret(mainPkg, 0, &types.StdSizes{8, 8}, inputs[0], []string{})
 
 	// The definition of success varies with each file.
@@ -269,10 +278,12 @@ func printFailures(failures []string) {
 	}
 }
 
-// The "normal" success predicate.
-func exitsZero(exitcode int, _ string) error {
+func success(exitcode int, output string) error {
 	if exitcode != 0 {
 		return fmt.Errorf("exit code was %d", exitcode)
+	}
+	if strings.Contains(output, "BUG") {
+		return fmt.Errorf("exited zero but output contained 'BUG'")
 	}
 	return nil
 }
@@ -281,7 +292,7 @@ func exitsZero(exitcode int, _ string) error {
 func TestTestdataFiles(t *testing.T) {
 	var failures []string
 	for _, input := range testdataTests {
-		if !run(t, "testdata"+slash, input, exitsZero) {
+		if !run(t, "testdata"+slash, input, success) {
 			failures = append(failures, input)
 		}
 	}
@@ -296,23 +307,13 @@ func TestGorootTest(t *testing.T) {
 
 	var failures []string
 
-	// $GOROOT/tests are also considered a failure if they print "BUG".
-	success := func(exitcode int, output string) error {
-		if exitcode != 0 {
-			return fmt.Errorf("exit code was %d", exitcode)
-		}
-		if strings.Contains(output, "BUG") {
-			return fmt.Errorf("exited zero but output contained 'BUG'")
-		}
-		return nil
-	}
 	for _, input := range gorootTestTests {
 		if !run(t, filepath.Join(build.Default.GOROOT, "test")+slash, input, success) {
 			failures = append(failures, input)
 		}
 	}
-	for _, input := range gorootSrcPkgTests {
-		if !run(t, filepath.Join(build.Default.GOROOT, "src/pkg")+slash, input, success) {
+	for _, input := range gorootSrcTests {
+		if !run(t, filepath.Join(build.Default.GOROOT, "src")+slash, input, success) {
 			failures = append(failures, input)
 		}
 	}
@@ -340,14 +341,12 @@ func TestTestmainPackage(t *testing.T) {
 // CreateTestMainPackage should return nil if there were no tests.
 func TestNullTestmainPackage(t *testing.T) {
 	var conf loader.Config
-	if err := conf.CreateFromFilenames("", "testdata/b_test.go"); err != nil {
-		t.Fatalf("ParseFile failed: %s", err)
-	}
+	conf.CreateFromFilenames("", "testdata/b_test.go")
 	iprog, err := conf.Load()
 	if err != nil {
 		t.Fatalf("CreatePackages failed: %s", err)
 	}
-	prog := ssa.Create(iprog, ssa.SanityCheckFunctions)
+	prog := ssautil.CreateProgram(iprog, ssa.SanityCheckFunctions)
 	mainPkg := prog.Package(iprog.Created[0].Pkg)
 	if mainPkg.Func("main") != nil {
 		t.Fatalf("unexpected main function")

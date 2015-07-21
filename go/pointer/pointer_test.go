@@ -12,7 +12,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"go/parser"
 	"go/token"
 	"io/ioutil"
 	"os"
@@ -21,13 +20,13 @@ import (
 	"strings"
 	"testing"
 
-	"code.google.com/p/go.tools/go/callgraph"
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/pointer"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/ssa/ssautil"
-	"code.google.com/p/go.tools/go/types"
-	"code.google.com/p/go.tools/go/types/typeutil"
+	"golang.org/x/tools/go/callgraph"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/pointer"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/ssautil"
+	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 var inputs = []string{
@@ -44,8 +43,9 @@ var inputs = []string{
 	"testdata/fmtexcerpt.go",
 	"testdata/func.go",
 	"testdata/funcreflect.go",
-	"testdata/hello.go",
+	"testdata/hello.go", // NB: causes spurious failure of HVN cross-check
 	"testdata/interfaces.go",
+	"testdata/issue9002.go",
 	"testdata/mapreflect.go",
 	"testdata/maps.go",
 	"testdata/panic.go",
@@ -54,6 +54,7 @@ var inputs = []string{
 	"testdata/rtti.go",
 	"testdata/structreflect.go",
 	"testdata/structs.go",
+	"testdata/timer.go",
 }
 
 // Expectation grammar:
@@ -151,7 +152,7 @@ func findProbe(prog *ssa.Program, probes map[*ssa.CallCommon]bool, queries map[s
 }
 
 func doOneInput(input, filename string) bool {
-	conf := loader.Config{SourceImports: true}
+	var conf loader.Config
 
 	// Parsing.
 	f, err := conf.ParseFile(filename, input)
@@ -170,7 +171,7 @@ func doOneInput(input, filename string) bool {
 	mainPkgInfo := iprog.Created[0].Pkg
 
 	// SSA creation + building.
-	prog := ssa.Create(iprog, ssa.SanityCheckFunctions)
+	prog := ssautil.CreateProgram(iprog, ssa.SanityCheckFunctions)
 	prog.BuildAll()
 
 	mainpkg := prog.Package(mainPkgInfo)
@@ -189,7 +190,8 @@ func doOneInput(input, filename string) bool {
 			for _, b := range fn.Blocks {
 				for _, instr := range b.Instrs {
 					if instr, ok := instr.(ssa.CallInstruction); ok {
-						if b, ok := instr.Common().Value.(*ssa.Builtin); ok && b.Name() == "print" {
+						call := instr.Common()
+						if b, ok := call.Value.(*ssa.Builtin); ok && b.Name() == "print" && len(call.Args) == 1 {
 							probes[instr.Common()] = true
 						}
 					}
@@ -237,21 +239,14 @@ func doOneInput(input, filename string) bool {
 				for _, typstr := range split(rest, "|") {
 					var t types.Type = types.Typ[types.Invalid] // means "..."
 					if typstr != "..." {
-						texpr, err := parser.ParseExpr(typstr)
-						if err != nil {
-							ok = false
-							// Don't print err since its location is bad.
-							e.errorf("'%s' is not a valid type", typstr)
-							continue
-						}
-						mainFileScope := mainpkg.Object.Scope().Child(0)
-						t, _, err = types.EvalNode(prog.Fset, texpr, mainpkg.Object, mainFileScope)
+						tv, err := types.Eval(prog.Fset, mainpkg.Object, f.Pos(), typstr)
 						if err != nil {
 							ok = false
 							// Don't print err since its location is bad.
 							e.errorf("'%s' is not a valid type: %s", typstr, err)
 							continue
 						}
+						t = tv.Type
 					}
 					e.types = append(e.types, t)
 				}
@@ -287,6 +282,7 @@ func doOneInput(input, filename string) bool {
 	}
 
 	var log bytes.Buffer
+	fmt.Fprintf(&log, "Input: %s\n", filename)
 
 	// Run the analysis.
 	config := &pointer.Config{
@@ -296,7 +292,10 @@ func doOneInput(input, filename string) bool {
 		Log:            &log,
 	}
 	for probe := range probes {
-		config.AddQuery(probe.Args[0])
+		v := probe.Args[0]
+		if pointer.CanPoint(v.Type()) {
+			config.AddQuery(v)
+		}
 	}
 
 	// Print the log is there was an error or a panic.

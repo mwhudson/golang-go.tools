@@ -21,8 +21,7 @@ vets the files named, all of which must be in the same package.
 
 By directory:
 	go tool vet source/directory
-recursively descends the directory, vetting each file in isolation.
-Package-level type-checking is disabled, so the vetting is weaker.
+recursively descends the directory, vetting each package it finds.
 
 Vet's exit code is 2 for erroneous invocation of the tool, 1 if a
 problem was reported, and 0 otherwise. Note that the tool does not
@@ -49,6 +48,7 @@ with these names, disregarding case:
 	Sprint Sprintf Sprintln
 	Error Errorf
 	Fatal Fatalf
+	Log Logf
 	Panic Panicf Panicln
 If the function name ends with an 'f', the function is assumed to take
 a format descriptor string in the manner of fmt.Printf. If not, vet
@@ -72,6 +72,7 @@ Struct tags
 Flag: -structtags
 
 Struct tags that do not follow the format understood by reflect.StructTag.Get.
+Well-known encoding struct tags (json, xml) used with unexported fields.
 
 Unkeyed composite literals
 
@@ -96,6 +97,12 @@ Atomic mistakes
 Flag: -atomic
 
 Common mistaken usages of the sync/atomic package.
+
+Boolean conditions
+
+Flag: -bool
+
+Mistakes involving boolean operators.
 
 Build tags
 
@@ -143,6 +150,21 @@ there is a uintptr-typed word in memory that holds a pointer value,
 because that word will be invisible to stack copying and to the garbage
 collector.
 
+Unused result of certain function calls
+
+Flag: -unusedresult
+
+Calls to well-known functions and methods that return a value that is
+discarded.  By default, this includes functions like fmt.Errorf and
+fmt.Sprintf and methods like String and Error. The flags -unusedfuncs
+and -unusedstringmethods control the set.
+
+Shifts
+
+Flag: -shift
+
+Shifts equal to or longer than the variable's length.
+
 Other flags
 
 These flags configure the behavior of vet:
@@ -165,4 +187,4 @@ These flags configure the behavior of vet:
 	-test
 		For testing only: sets -all and -shadow.
 */
-package main
+package main // import "golang.org/x/tools/cmd/vet"

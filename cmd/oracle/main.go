@@ -8,7 +8,7 @@
 //
 // Run with -help flag or help subcommand for usage information.
 //
-package main
+package main // import "golang.org/x/tools/cmd/oracle"
 
 import (
 	"bufio"
@@ -23,8 +23,9 @@ import (
 	"runtime"
 	"runtime/pprof"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/oracle"
+	"golang.org/x/tools/go/buildutil"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/oracle"
 )
 
 var posFlag = flag.String("pos", "",
@@ -36,8 +37,11 @@ var ptalogFlag = flag.String("ptalog", "",
 
 var formatFlag = flag.String("format", "plain", "Output format.  One of {plain,json,xml}.")
 
-// TODO(adonovan): flip this flag after PTA presolver is implemented.
 var reflectFlag = flag.Bool("reflect", false, "Analyze reflection soundly (slow).")
+
+func init() {
+	flag.Var((*buildutil.TagsFlag)(&build.Default.BuildTags), "tags", buildutil.TagsFlagDoc)
+}
 
 const useHelp = "Run 'oracle -help' for more information.\n"
 
@@ -50,30 +54,31 @@ The -format flag controls the output format:
 	json	structured data in JSON syntax.
 	xml	structured data in XML syntax.
 
-The -pos flag is required in all modes except 'callgraph'.
+The -pos flag is required in all modes.
 
 The mode argument determines the query to perform:
 
 	callees	  	show possible targets of selected function call
 	callers	  	show possible callers of selected function
-	callgraph 	show complete callgraph of program
 	callstack 	show path from callgraph root to selected function
+	definition	show declaration of selected identifier
 	describe  	describe selected syntax: definition, methods, etc
 	freevars  	show free variables of selection
-	implements	show 'implements' relation for selected package
+	implements	show 'implements' relation for selected type or method
 	peers     	show send/receive corresponding to selected channel op
 	referrers 	show all refs to entity denoted by selected identifier
+	what		show basic information about the selected syntax node
 
 The user manual is available here:  http://golang.org/s/oracle-user-manual
 
 Examples:
 
 Describe the syntax at offset 530 in this file (an import spec):
-% oracle -pos=src/code.google.com/p/go.tools/cmd/oracle/main.go:#530 describe \
-   code.google.com/p/go.tools/cmd/oracle
+% oracle -pos=src/golang.org/x/tools/cmd/oracle/main.go:#530 describe \
+   golang.org/x/tools/cmd/oracle
 
 Print the callgraph of the trivial web-server in JSON format:
-% oracle -format=json src/pkg/net/http/triv.go callgraph
+% oracle -format=json $GOROOT/src/net/http/triv.go callgraph
 ` + loader.FromArgsUsage
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -111,7 +116,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) == 0 || args[0] == "" {
-		fmt.Fprint(os.Stderr, "Error: a mode argument is required.\n"+useHelp)
+		fmt.Fprint(os.Stderr, "oracle: a mode argument is required.\n"+useHelp)
 		os.Exit(2)
 	}
 
@@ -119,11 +124,6 @@ func main() {
 	args = args[1:]
 	if mode == "help" {
 		printHelp()
-		os.Exit(2)
-	}
-
-	if len(args) == 0 && mode != "what" {
-		fmt.Fprint(os.Stderr, "Error: no package arguments.\n"+useHelp)
 		os.Exit(2)
 	}
 
@@ -136,8 +136,12 @@ func main() {
 			buf := bufio.NewWriter(f)
 			ptalog = buf
 			defer func() {
-				buf.Flush()
-				f.Close()
+				if err := buf.Flush(); err != nil {
+					log.Printf("flush: %s", err)
+				}
+				if err := f.Close(); err != nil {
+					log.Printf("close: %s", err)
+				}
 			}()
 		}
 	}
@@ -157,36 +161,44 @@ func main() {
 	case "json", "plain", "xml":
 		// ok
 	default:
-		fmt.Fprintf(os.Stderr, "Error: illegal -format value: %q.\n"+useHelp, *formatFlag)
+		fmt.Fprintf(os.Stderr, "oracle: illegal -format value: %q.\n"+useHelp, *formatFlag)
 		os.Exit(2)
 	}
 
 	// Ask the oracle.
-	res, err := oracle.Query(args, mode, *posFlag, ptalog, &build.Default, *reflectFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s.\n", err)
+	query := oracle.Query{
+		Mode:       mode,
+		Pos:        *posFlag,
+		Build:      &build.Default,
+		Scope:      args,
+		PTALog:     ptalog,
+		Reflection: *reflectFlag,
+	}
+
+	if err := oracle.Run(&query); err != nil {
+		fmt.Fprintf(os.Stderr, "oracle: %s\n", err)
 		os.Exit(1)
 	}
 
 	// Print the result.
 	switch *formatFlag {
 	case "json":
-		b, err := json.MarshalIndent(res.Serial(), "", "\t")
+		b, err := json.MarshalIndent(query.Serial(), "", "\t")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "JSON error: %s.\n", err)
+			fmt.Fprintf(os.Stderr, "oracle: JSON error: %s\n", err)
 			os.Exit(1)
 		}
 		os.Stdout.Write(b)
 
 	case "xml":
-		b, err := xml.MarshalIndent(res.Serial(), "", "\t")
+		b, err := xml.MarshalIndent(query.Serial(), "", "\t")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "XML error: %s.\n", err)
+			fmt.Fprintf(os.Stderr, "oracle: XML error: %s\n", err)
 			os.Exit(1)
 		}
 		os.Stdout.Write(b)
 
 	case "plain":
-		res.WriteTo(os.Stdout)
+		query.WriteTo(os.Stdout)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"go/token"
 	"strings"
 
-	"code.google.com/p/go.tools/go/exact"
+	"golang.org/x/tools/go/exact"
 )
 
 var (
@@ -69,7 +69,7 @@ func defPredeclaredTypes() {
 	res := NewVar(token.NoPos, nil, "", Typ[String])
 	sig := &Signature{results: NewTuple(res)}
 	err := NewFunc(token.NoPos, nil, "Error", sig)
-	typ := &Named{underlying: NewInterface([]*Func{err}, nil)}
+	typ := &Named{underlying: NewInterface([]*Func{err}, nil).Complete()}
 	sig.recv = NewVar(token.NoPos, nil, "", typ)
 	def(NewTypeName(token.NoPos, nil, "error", typ))
 }
@@ -177,7 +177,7 @@ func DefPredeclaredTestFuncs() {
 }
 
 func init() {
-	Universe = NewScope(nil, "universe")
+	Universe = NewScope(nil, token.NoPos, token.NoPos, "universe")
 	Unsafe = NewPackage("unsafe", "unsafe")
 	Unsafe.complete = true
 

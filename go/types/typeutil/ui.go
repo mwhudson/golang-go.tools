@@ -6,7 +6,7 @@ package typeutil
 
 // This file defines utilities for user interfaces that display types.
 
-import "code.google.com/p/go.tools/go/types"
+import "golang.org/x/tools/go/types"
 
 // IntuitiveMethodSet returns the intuitive method set of a type, T.
 //
@@ -17,7 +17,7 @@ import "code.google.com/p/go.tools/go/types"
 //
 // The order of the result is as for types.MethodSet(T).
 //
-func IntuitiveMethodSet(T types.Type, msets *types.MethodSetCache) []*types.Selection {
+func IntuitiveMethodSet(T types.Type, msets *MethodSetCache) []*types.Selection {
 	var result []*types.Selection
 	mset := msets.MethodSet(T)
 	if _, ok := T.Underlying().(*types.Interface); ok {

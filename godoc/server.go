@@ -7,7 +7,6 @@ package godoc
 import (
 	"bytes"
 	"encoding/json"
-	"expvar"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -27,18 +26,19 @@ import (
 	"text/template"
 	"time"
 
-	"code.google.com/p/go.tools/godoc/analysis"
-	"code.google.com/p/go.tools/godoc/util"
-	"code.google.com/p/go.tools/godoc/vfs"
+	"golang.org/x/tools/godoc/analysis"
+	"golang.org/x/tools/godoc/util"
+	"golang.org/x/tools/godoc/vfs"
 )
 
 // handlerServer is a migration from an old godoc http Handler type.
 // This should probably merge into something else.
 type handlerServer struct {
 	p       *Presentation
-	c       *Corpus // copy of p.Corpus
-	pattern string  // url pattern; e.g. "/pkg/"
-	fsRoot  string  // file system root to which the pattern is mapped
+	c       *Corpus  // copy of p.Corpus
+	pattern string   // url pattern; e.g. "/pkg/"
+	fsRoot  string   // file system root to which the pattern is mapped; e.g. "/src"
+	exclude []string // file system paths to exclude; e.g. "/src/cmd"
 }
 
 func (s *handlerServer) registerWithMux(mux *http.ServeMux) {
@@ -66,7 +66,14 @@ func (h *handlerServer) GetPageInfo(abspath, relpath string, mode PageInfoMode) 
 	ctxt := build.Default
 	ctxt.IsAbsPath = pathpkg.IsAbs
 	ctxt.ReadDir = func(dir string) ([]os.FileInfo, error) {
-		return h.c.fs.ReadDir(filepath.ToSlash(dir))
+		f, err := h.c.fs.ReadDir(filepath.ToSlash(dir))
+		filtered := make([]os.FileInfo, 0, len(f))
+		for _, i := range f {
+			if mode&NoFiltering != 0 || i.Name() != "internal" {
+				filtered = append(filtered, i)
+			}
+		}
+		return filtered, err
 	}
 	ctxt.OpenFile = func(name string) (r io.ReadCloser, err error) {
 		data, err := vfs.ReadFile(h.c.fs, filepath.ToSlash(name))
@@ -188,11 +195,33 @@ func (h *handlerServer) GetPageInfo(abspath, relpath string, mode PageInfoMode) 
 		dir = h.c.newDirectory(abspath, 1)
 		timestamp = time.Now()
 	}
-	info.Dirs = dir.listing(true)
+	info.Dirs = dir.listing(true, func(path string) bool { return h.includePath(path, mode) })
 	info.DirTime = timestamp
 	info.DirFlat = mode&FlatDir != 0
 
 	return info
+}
+
+func (h *handlerServer) includePath(path string, mode PageInfoMode) (r bool) {
+	// if the path is under one of the exclusion paths, don't list.
+	for _, e := range h.exclude {
+		if strings.HasPrefix(path, e) {
+			return false
+		}
+	}
+
+	// if the path includes 'internal', don't list unless we are in the NoFiltering mode.
+	if mode&NoFiltering != 0 {
+		return true
+	}
+	if strings.Contains(path, "internal") {
+		for _, c := range strings.Split(filepath.Clean(path), string(os.PathSeparator)) {
+			if c == "internal" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type funcsByName []*doc.Func
@@ -253,21 +282,21 @@ func (h *handlerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// special cases for top-level package/command directories
 	switch tabtitle {
-	case "/src/pkg":
+	case "/src":
+		title = "Packages"
 		tabtitle = "Packages"
 	case "/src/cmd":
+		title = "Commands"
 		tabtitle = "Commands"
 	}
 
 	// Emit JSON array for type information.
-	// TODO(adonovan): issue a "pending..." message if results not ready.
-	var callGraph []*analysis.PCGNodeJSON
-	var typeInfos []*analysis.TypeInfoJSON
-	callGraph, info.CallGraphIndex, typeInfos = h.c.Analysis.PackageInfo(relpath)
-	info.CallGraph = htmltemplate.JS(marshalJSON(callGraph))
-	info.AnalysisData = htmltemplate.JS(marshalJSON(typeInfos))
+	pi := h.c.Analysis.PackageInfo(relpath)
+	info.CallGraphIndex = pi.CallGraphIndex
+	info.CallGraph = htmltemplate.JS(marshalJSON(pi.CallGraph))
+	info.AnalysisData = htmltemplate.JS(marshalJSON(pi.Types))
 	info.TypeInfoIndex = make(map[string]int)
-	for i, ti := range typeInfos {
+	for i, ti := range pi.Types {
 		info.TypeInfoIndex[ti.Name] = i
 	}
 
@@ -430,27 +459,18 @@ func (w *writerCapturesErr) Write(p []byte) (int, error) {
 	return n, err
 }
 
-var httpErrors *expvar.Map
-
-func init() {
-	httpErrors = expvar.NewMap("httpWriteErrors").Init()
-}
-
 // applyTemplateToResponseWriter uses an http.ResponseWriter as the io.Writer
 // for the call to template.Execute.  It uses an io.Writer wrapper to capture
-// errors from the underlying http.ResponseWriter.  If an error is found, an
-// expvar will be incremented.  Other template errors will be logged.  This is
-// done to keep from polluting log files with error messages due to networking
-// issues, such as client disconnects and http HEAD protocol violations.
+// errors from the underlying http.ResponseWriter.  Errors are logged only when
+// they come from the template processing and not the Writer; this avoid
+// polluting log files with error messages due to networking issues, such as
+// client disconnects and http HEAD protocol violations.
 func applyTemplateToResponseWriter(rw http.ResponseWriter, t *template.Template, data interface{}) {
 	w := &writerCapturesErr{w: rw}
 	err := t.Execute(w, data)
 	// There are some cases where template.Execute does not return an error when
 	// rw returns an error, and some where it does.  So check w.err first.
-	if w.err != nil {
-		// For http errors, increment an expvar.
-		httpErrors.Add(w.err.Error(), 1)
-	} else if err != nil {
+	if w.err == nil && err != nil {
 		// Log template errors.
 		log.Printf("%s.Execute: %s", t.Name(), err)
 	}
@@ -500,21 +520,20 @@ func (p *Presentation) serveTextFile(w http.ResponseWriter, r *http.Request, abs
 
 	var buf bytes.Buffer
 	if pathpkg.Ext(abspath) == ".go" {
-		// Find markup links for this file (e.g. "/src/pkg/fmt/print.go").
-		data, links := p.Corpus.Analysis.FileInfo(abspath)
+		// Find markup links for this file (e.g. "/src/fmt/print.go").
+		fi := p.Corpus.Analysis.FileInfo(abspath)
 		buf.WriteString("<script type='text/javascript'>document.ANALYSIS_DATA = ")
-		buf.Write(marshalJSON(data))
+		buf.Write(marshalJSON(fi.Data))
 		buf.WriteString(";</script>\n")
 
-		// TODO(adonovan): indicate whether analysis is
-		// disabled, pending, completed or failed.
-		// For now, display help link only if 'completed'.
-		if links != nil {
-			buf.WriteString("<a href='/lib/godoc/analysis/help.html'>Static analysis features</a><br/>")
+		if status := p.Corpus.Analysis.Status(); status != "" {
+			buf.WriteString("<a href='/lib/godoc/analysis/help.html'>Static analysis features</a> ")
+			// TODO(adonovan): show analysis status at per-file granularity.
+			fmt.Fprintf(&buf, "<span style='color: grey'>[%s]</span><br/>", htmlpkg.EscapeString(status))
 		}
 
 		buf.WriteString("<pre>")
-		formatGoSource(&buf, src, links, h, s)
+		formatGoSource(&buf, src, fi.Links, h, s)
 		buf.WriteString("</pre>")
 	} else {
 		buf.WriteString("<pre>")
