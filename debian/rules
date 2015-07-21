@@ -8,7 +8,7 @@
 
 export DH_VERBOSE=1
 
-export DH_GOPKG := code.google.com/p/go.tools
+export DH_GOPKG := golang.org/x/tools
 
 # Install all files into the build GOPATH, not only .go files.
 # This is necessary because go.tools contains golden files that are necessary
@@ -50,14 +50,14 @@ override_dh_auto_install:
 		install $$file $(CURDIR)/debian/tmp/usr/lib/go/pkg/$$file; \
 	done)
 	# Remove extra LICENSE file, which is installed because we run with DH_GOLANG_INSTALL_ALL=1.
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/LICENSE
+	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/LICENSE
 	# Make scripts executable.
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/cmd/godoc/setup-godoc-app.bash
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/cmd/oracle/emacs-test.bash
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/bake.sh
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/godoc/setup-godoc-app.bash
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/oracle/emacs-test.bash
+	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/bake.sh
 	# Replace embedded copy of jquery with a symlink.
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/jquery.js && \
-	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/code.google.com/p/go.tools/godoc/static/jquery.js
+	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js && \
+	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js
 
 %:
 	dh $@ --buildsystem=golang --with=golang
