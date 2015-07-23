@@ -54,6 +54,7 @@ override_dh_auto_install:
 	done)
 	# Remove extra LICENSE file, which is installed because we run with DH_GOLANG_INSTALL_ALL=1.
 	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/LICENSE
+	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/.gitattributes
 	# Make scripts executable.
 	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/godoc/setup-godoc-app.bash
 	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/oracle/emacs-test.bash
