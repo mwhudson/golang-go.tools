@@ -1,0 +1,13 @@
+Index: golang-go.tools/cmd/present/local.go
+===================================================================
+--- golang-go.tools.orig/cmd/present/local.go
++++ golang-go.tools/cmd/present/local.go
+@@ -29,7 +29,7 @@ var basePath string
+ func main() {
+ 	httpAddr := flag.String("http", "127.0.0.1:3999", "HTTP service address (e.g., '127.0.0.1:3999')")
+ 	originHost := flag.String("orighost", "", "host component of web origin URL (e.g., 'localhost')")
+-	flag.StringVar(&basePath, "base", "", "base path for slide template and static resources")
++	flag.StringVar(&basePath, "base", "/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/", "base path for slide template and static resources")
+ 	flag.BoolVar(&present.PlayEnabled, "play", true, "enable playground (permit execution of arbitrary user code)")
+ 	nativeClient := flag.Bool("nacl", false, "use Native Client environment playground (prevents non-Go code execution)")
+ 	flag.Parse()
