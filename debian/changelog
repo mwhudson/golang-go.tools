@@ -1,9 +1,11 @@
-golang-golang-x-tools (1:0.0~git20150716.0.87156cb-1) unstable; urgency=medium
+golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-1) unstable; urgency=medium
 
   * Rename source and binary package from golang-go.tools{,-dev} to
     golang-golang-x-tools{,-dev}, following the policy outlined at
     http://pkg-go.alioth.debian.org/packaging.html
   * New upstream version
+  * Repackage upstream source to use symlinks to jquery and jquery-ui instead
+    of bundled source copies.
   * drop debian/patches/0003-fix-tests.patch (merged upstream)
 
  -- Michael Stapelberg <stapelberg@debian.org>  Tue, 21 Jul 2015 10:36:10 +0200
