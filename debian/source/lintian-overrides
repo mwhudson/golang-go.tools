@@ -1,0 +1,5 @@
+# These are not unsafe, they were put in place manually when repackaging the
+# upstream source. If there is a better way of referring to the jquery.js
+# inside the libjs-jquery Debian package, please send a patch.
+source-contains-unsafe-symlink cmd/present/static/jquery-ui.js
+source-contains-unsafe-symlink godoc/static/jquery.js
