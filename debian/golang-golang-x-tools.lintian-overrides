@@ -1,0 +1,4 @@
+# The go compiler does not support relro currently.
+hardening-no-relro usr/bin/godoc
+hardening-no-relro usr/bin/present
+hardening-no-relro usr/bin/tipgodoc
