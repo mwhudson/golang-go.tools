@@ -1,4 +1,4 @@
-golang-golang-x-tools (0.0~git20150716.0.87156cb-1) unstable; urgency=medium
+golang-golang-x-tools (1:0.0~git20150716.0.87156cb-1) unstable; urgency=medium
 
   * Rename source and binary package from golang-go.tools{,-dev} to
     golang-golang-x-tools{,-dev}, following the policy outlined at
