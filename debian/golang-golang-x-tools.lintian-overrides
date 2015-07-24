@@ -2,3 +2,12 @@
 hardening-no-relro usr/bin/godoc
 hardening-no-relro usr/bin/present
 hardening-no-relro usr/bin/tipgodoc
+# This is a false-positive: “grep -rw ang” comes back empty.
+spelling-error-in-binary usr/bin/godoc ang and
+spelling-error-in-binary usr/bin/html2article ang and
+spelling-error-in-binary usr/bin/present ang and
+spelling-error-in-binary usr/lib/go/pkg/tool/linux_amd64/cover ang and
+# This misspelling is used in the API of the jquery treeview plugin, hence it’s
+# unlikely to be changed.
+spelling-error-in-binary usr/bin/godoc collapsable collapsible
+spelling-error-in-binary usr/bin/present collapsable collapsible
