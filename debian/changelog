@@ -7,6 +7,8 @@ golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-1) unstable; urgency=me
   * Repackage upstream source to use symlinks to jquery and jquery-ui instead
     of bundled source copies.
   * drop debian/patches/0003-fix-tests.patch (merged upstream)
+  * add debian/patches/0003-present-base-path.patch
+  * update standards-version to 3.9.6 (no changes necessary)
 
  -- Michael Stapelberg <stapelberg@debian.org>  Tue, 21 Jul 2015 10:36:10 +0200
 
