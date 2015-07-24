@@ -1,3 +1,11 @@
+Description: Populate -base default value.
+ This path is debian-specific, hence this patch cannot go upstream.
+Author: Michael Stapelberg <stapelberg@debian.org>
+Last-Updated: 2015-07-24
+Forwarded: no
+
+---
+
 Index: golang-go.tools/cmd/present/local.go
 ===================================================================
 --- golang-go.tools.orig/cmd/present/local.go
