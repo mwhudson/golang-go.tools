@@ -13,8 +13,8 @@ Package: golang-golang-x-tools
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, golang-golang-x-tools-dev
 Built-Using: ${misc:Built-Using}
-Breaks: golang-go (<< 2:1.2), golang-go.tools (<< 0.0~git20150716.0.87156cb~)
-Replaces: golang-go (<< 2:1.2), golang-go.tools (<< 0.0~git20150716.0.87156cb~)
+Breaks: golang-go (<< 2:1.2), golang-go.tools (<< 1:0.0~git20150716.0.87156cb~)
+Replaces: golang-go (<< 2:1.2), golang-go.tools (<< 1:0.0~git20150716.0.87156cb~)
 Provides: golang-go.tools
 Description: supplementary Go tools
  This subrepository holds the source for various packages and tools that
@@ -38,8 +38,8 @@ Description: Transitional package for golang-golang-x-tools
 Package: golang-golang-x-tools-dev
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, libjs-jquery, libjs-jquery-ui
-Breaks: golang-go.tools-dev (<< 0.0~git20150716.0.87156cb~)
-Replaces: golang-go.tools-dev (<< 0.0~git20150716.0.87156cb~)
+Breaks: golang-go.tools-dev (<< 1:0.0~git20150716.0.87156cb~)
+Replaces: golang-go.tools-dev (<< 1:0.0~git20150716.0.87156cb~)
 Provides: golang-go.tools-dev
 Description: supplementary Go tools (development files)
  This subrepository holds the source for various packages and tools that

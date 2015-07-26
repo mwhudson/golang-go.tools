@@ -1,3 +1,10 @@
+golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-2) unstable; urgency=medium
+
+  * Fix upgrade path by using correct version number (forgot the epoch
+    earlier) in Breaks/Replaces fields (Closes: #793650)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sun, 26 Jul 2015 13:59:29 +0200
+
 golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-1) unstable; urgency=medium
 
   * Rename source and binary package from golang-go.tools{,-dev} to
