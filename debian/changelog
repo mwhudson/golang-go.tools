@@ -1,3 +1,9 @@
+golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-3) unstable; urgency=medium
+
+  * Rename stress to golang-stress (Closes: #793693)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 27 Jul 2015 19:16:39 +0200
+
 golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-2) unstable; urgency=medium
 
   * Fix upgrade path by using correct version number (forgot the epoch
