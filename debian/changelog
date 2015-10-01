@@ -1,3 +1,11 @@
+golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-4) unstable; urgency=medium
+
+  * Make the transitional golang-go.tools-dev Architecture: all, not
+    Architecture: any (otherwise both 1:0.0~git20150716.0.87156cb+dfsg1-3 and
+    0.0~hg20140703-4 are in Debian testing). (Closes: #799797)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 01 Oct 2015 20:55:09 +0200
+
 golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-3) unstable; urgency=medium
 
   * Rename stress to golang-stress (Closes: #793693)

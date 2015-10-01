@@ -56,7 +56,7 @@ Description: supplementary Go tools (development files)
 
 Package: golang-go.tools-dev
 Section: oldlibs
-Architecture: any
+Architecture: all
 Depends: ${misc:Depends}, golang-golang-x-tools-dev
 Description: Transitional package for golang-golang-x-tools-dev
  This is a transitional package to ease upgrades to the
