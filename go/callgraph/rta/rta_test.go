@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// No testdata on Android.
+
+// +build !android
+
 package rta_test
 
 import (
@@ -79,14 +83,14 @@ func TestRTA(t *testing.T) {
 
 		prog := ssautil.CreateProgram(iprog, 0)
 		mainPkg := prog.Package(iprog.Created[0].Pkg)
-		prog.BuildAll()
+		prog.Build()
 
 		res := rta.Analyze([]*ssa.Function{
 			mainPkg.Func("main"),
 			mainPkg.Func("init"),
 		}, true)
 
-		if got := printResult(res, mainPkg.Object); got != want {
+		if got := printResult(res, mainPkg.Pkg); got != want {
 			t.Errorf("%s: got:\n%s\nwant:\n%s",
 				prog.Fset.Position(pos), got, want)
 		}

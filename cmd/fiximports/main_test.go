@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// No testdata on Android.
+
+// +build !android
+
 package main
 
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -27,18 +33,20 @@ import (
 // titanic.biz/foo	-- domain is sinking but package has no import comment yet
 
 func TestFixImports(t *testing.T) {
-	gopath := cwd + "/testdata"
+	gopath := filepath.Join(cwd, "testdata")
 	if err := os.Setenv("GOPATH", gopath); err != nil {
 		t.Fatalf("os.Setenv: %v", err)
 	}
 	defer func() {
 		stderr = os.Stderr
 		*badDomains = "code.google.com"
+		*replaceFlag = ""
 	}()
 
 	for i, test := range []struct {
 		packages    []string // packages to rewrite, "go list" syntax
 		badDomains  string   // -baddomains flag
+		replaceFlag string   // -replace flag
 		wantOK      bool
 		wantStderr  string
 		wantRewrite map[string]string
@@ -100,15 +108,90 @@ import (
 )`,
 			},
 		},
+		// #3. The -replace flag lets user supply missing import comments.
+		{
+			packages:    []string{"all"},
+			replaceFlag: "titanic.biz/foo=new.com/foo",
+			wantOK:      true,
+			wantStderr: `
+testdata/src/old.com/bad/bad.go:2:43: expected 'package', found 'EOF'
+fruit.io/banana
+	fixed: old.com/one -> new.com/one
+	fixed: titanic.biz/bar -> new.com/bar
+	fixed: titanic.biz/foo -> new.com/foo
+`,
+			wantRewrite: map[string]string{
+				"$GOPATH/src/fruit.io/banana/banana.go": `package banana
+
+import (
+	_ "new.com/bar"
+	_ "new.com/foo"
+	_ "new.com/one"
+)`,
+			},
+		},
+		// #4. The -replace flag supports wildcards.
+		//     An explicit import comment takes precedence.
+		{
+			packages:    []string{"all"},
+			replaceFlag: "titanic.biz/...=new.com/...",
+			wantOK:      true,
+			wantStderr: `
+testdata/src/old.com/bad/bad.go:2:43: expected 'package', found 'EOF'
+fruit.io/banana
+	fixed: old.com/one -> new.com/one
+	fixed: titanic.biz/bar -> new.com/bar
+	fixed: titanic.biz/foo -> new.com/foo
+`,
+			wantRewrite: map[string]string{
+				"$GOPATH/src/fruit.io/banana/banana.go": `package banana
+
+import (
+	_ "new.com/bar"
+	_ "new.com/foo"
+	_ "new.com/one"
+)`,
+			},
+		},
+		// #5. The -replace flag trumps -baddomains.
+		{
+			packages:    []string{"all"},
+			badDomains:  "titanic.biz",
+			replaceFlag: "titanic.biz/foo=new.com/foo",
+			wantOK:      true,
+			wantStderr: `
+testdata/src/old.com/bad/bad.go:2:43: expected 'package', found 'EOF'
+fruit.io/banana
+	fixed: old.com/one -> new.com/one
+	fixed: titanic.biz/bar -> new.com/bar
+	fixed: titanic.biz/foo -> new.com/foo
+`,
+			wantRewrite: map[string]string{
+				"$GOPATH/src/fruit.io/banana/banana.go": `package banana
+
+import (
+	_ "new.com/bar"
+	_ "new.com/foo"
+	_ "new.com/one"
+)`,
+			},
+		},
 	} {
 		*badDomains = test.badDomains
+		*replaceFlag = test.replaceFlag
 
 		stderr = new(bytes.Buffer)
 		gotRewrite := make(map[string]string)
 		writeFile = func(filename string, content []byte, mode os.FileMode) error {
 			filename = strings.Replace(filename, gopath, "$GOPATH", 1)
+			filename = filepath.ToSlash(filename)
 			gotRewrite[filename] = string(bytes.TrimSpace(content))
 			return nil
+		}
+
+		if runtime.GOOS == "windows" {
+			test.wantStderr = strings.Replace(test.wantStderr, `testdata/src/old.com/bad/bad.go`, `testdata\src\old.com\bad\bad.go`, -1)
+			test.wantStderr = strings.Replace(test.wantStderr, `testdata/src/fruit.io/banana/banana.go`, `testdata\src\fruit.io\banana\banana.go`, -1)
 		}
 
 		// Check status code.
@@ -138,7 +221,7 @@ import (
 
 // TestDryRun tests that the -n flag suppresses calls to writeFile.
 func TestDryRun(t *testing.T) {
-	gopath := cwd + "/testdata"
+	gopath := filepath.Join(cwd, "testdata")
 	if err := os.Setenv("GOPATH", gopath); err != nil {
 		t.Fatalf("os.Setenv: %v", err)
 	}

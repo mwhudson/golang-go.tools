@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
+	"go/token"
 	"log"
 	"os"
 	"os/exec"
@@ -238,9 +239,49 @@ func (m *mover) move() error {
 	}
 	newName := filepath.Base(m.to)
 	for _, f := range pkg.Files {
+		// Update all import comments.
+		for _, cg := range f.Comments {
+			c := cg.List[0]
+			if c.Slash >= f.Name.End() &&
+				sameLine(m.iprog.Fset, c.Slash, f.Name.End()) &&
+				(f.Decls == nil || c.Slash < f.Decls[0].Pos()) {
+				if strings.HasPrefix(c.Text, `// import "`) {
+					c.Text = `// import "` + m.to + `"`
+					break
+				}
+				if strings.HasPrefix(c.Text, `/* import "`) {
+					c.Text = `/* import "` + m.to + `" */`
+					break
+				}
+			}
+		}
 		f.Name.Name = newName // change package decl
 		filesToUpdate[f] = true
 	}
+
+	// Look through the external test packages (m.iprog.Created contains the external test packages).
+	for _, info := range m.iprog.Created {
+		// Change the "package" declaration of the external test package.
+		if info.Pkg.Path() == m.from+"_test" {
+			for _, f := range info.Files {
+				f.Name.Name = newName + "_test" // change package decl
+				filesToUpdate[f] = true
+			}
+		}
+
+		// Mark all the loaded external test packages, which import the "from" package,
+		// as affected packages and update the imports.
+		for _, imp := range info.Pkg.Imports() {
+			if imp.Path() == m.from {
+				m.affectedPackages[info.Pkg.Path()] = true
+				m.iprog.Imported[info.Pkg.Path()] = info
+				if err := importName(m.iprog, info, m.from, path.Base(m.from), newName); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	// Update imports of that package to use the new import name.
 	// None of the subpackages will change their name---only the from package
 	// itself will.
@@ -312,6 +353,11 @@ func (m *mover) move() error {
 	}
 
 	return moveDirectory(m.fromDir, m.toDir)
+}
+
+// sameLine reports whether two positions in the same file are on the same line.
+func sameLine(fset *token.FileSet, x, y token.Pos) bool {
+	return fset.Position(x).Line == fset.Position(y).Line
 }
 
 var moveDirectory = func(from, to string) error {
