@@ -6,65 +6,58 @@
 # dh-make output file, you may use that output file without restriction.
 # This special exception was added by Craig Small in version 0.37 of dh-make.
 
-export DH_VERBOSE=1
-
-export DH_GOPKG := golang.org/x/tools
+export DH_VERBOSE := 1
 
 # The go/types/... packages currently don’t pass tests.
-export DH_GOLANG_EXCLUDES := golang.org/x/tools/go/types
+#	golang.org/x/tools/go/types \
+# "vet" and "cover" are provided by golang-go (as of 1.5+)
+#export DH_GOLANG_EXCLUDES := \
+#	golang.org/x/tools/cmd/cover \
+#	golang.org/x/tools/cmd/vet
 
 # Install all files into the build GOPATH, not only .go files.
 # This is necessary because go.tools contains golden files that are necessary
 # for running the testsuite.
 export DH_GOLANG_INSTALL_ALL := 1
 
-# go.tools installs into $GOROOT, so create a temporary $GOROOT into which it
-# is actually allowed to write (as opposed to /usr/lib/go).
+# go.tools installs godoc into $GOROOT/bin, so create a temporary $GOROOT into
+# which it is actually allowed to write (as opposed to /usr/lib/go).
 export GOROOT_FINAL := /usr/lib/go
-export GOROOT = $(CURDIR)/temproot
+export GOROOT := $(CURDIR)/temproot
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf '$(GOROOT)'
 
 override_dh_auto_build:
-	mkdir -p $(CURDIR)/temproot
-	# We need a writable copy of pkg, go.tools installs into that.
-	cp -ar /usr/lib/go/pkg $(CURDIR)/temproot/pkg
-	ln -s /usr/lib/go/src $(CURDIR)/temproot/src
-	ln -s /usr/share/go/test $(CURDIR)/temproot/test
-	ln -s /usr/share/doc/golang-doc/html $(CURDIR)/temproot/doc
-	echo "listing:"
-	ls -hlR $(CURDIR)
-	dh_auto_build $@
+	mkdir -p '$(GOROOT)'
+	set -ex && for f in '$(GOROOT_FINAL)'/*; do \
+		ln -sT "$$f" "$(GOROOT)/$$(basename "$$f")"; \
+	done
+	# recreate 'bin' for godoc
+	rm '$(GOROOT)/bin' && mkdir '$(GOROOT)/bin'
+	dh_auto_build
 
 override_dh_auto_install:
-	dh_auto_install $@
-	# Install all binaries from bin/ and pkg/ to /usr/bin/ and
-	# /usr/lib/go/pkg, respectively.
-	echo "listing CURDIR=$(CURDIR):"
-	ls -hlR $(CURDIR)
+	dh_auto_install
 	# Rename “eg” to “golang-eg” (#753978)
-	mv $(CURDIR)/debian/tmp/usr/bin/eg $(CURDIR)/debian/tmp/usr/bin/golang-eg
+	mv debian/tmp/usr/bin/eg debian/tmp/usr/bin/golang-eg
 	# Rename “stress” to “golang-stress” (#793693)
-	mv $(CURDIR)/debian/tmp/usr/bin/stress $(CURDIR)/debian/tmp/usr/bin/golang-stress
-	(cd $(CURDIR)/temproot/bin; \
-	 for file in $$(find . -type f -newer $$(find $(CURDIR)/temproot/pkg/tool/ -name "fix")); do \
-		mkdir -p $(CURDIR)/debian/tmp/usr/bin/$$(dirname $$file); \
-		install $$file $(CURDIR)/debian/tmp/usr/bin/$$file; \
-	done)
-	(cd $(CURDIR)/temproot/pkg; \
-	 for file in $$(find . -type f -newer $$(find $(CURDIR)/temproot/pkg/tool/ -name "fix")); do \
-		mkdir -p $(CURDIR)/debian/tmp/usr/lib/go/pkg/$$(dirname $$file); \
-		install $$file $(CURDIR)/debian/tmp/usr/lib/go/pkg/$$file; \
-	done)
+	mv debian/tmp/usr/bin/stress debian/tmp/usr/bin/golang-stress
 	# Remove extra LICENSE file, which is installed because we run with DH_GOLANG_INSTALL_ALL=1.
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/LICENSE
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/.gitattributes
+	rm debian/tmp/usr/share/gocode/src/golang.org/x/tools/LICENSE
+	rm debian/tmp/usr/share/gocode/src/golang.org/x/tools/.gitattributes
 	# Make scripts executable.
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/godoc/setup-godoc-app.bash
-	chmod +x $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/oracle/emacs-test.bash
+	find debian/tmp/usr/share/gocode/src/golang.org/x/tools -name '*.bash' -exec chmod +x '{}' +
 	# Replace embedded copies of jquery and jquery-ui with a symlink.
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js && \
-	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js
-	-rm $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/jquery-ui.js && \
-	ln -s /usr/share/javascript/jquery-ui/jquery-ui.min.js $(CURDIR)/debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/jquery-ui.js
+	rm debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js && \
+		ln -s \
+			/usr/share/javascript/jquery/jquery.min.js \
+			debian/tmp/usr/share/gocode/src/golang.org/x/tools/godoc/static/jquery.js
+	rm debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/jquery-ui.js && \
+		ln -s \
+			/usr/share/javascript/jquery-ui/jquery-ui.min.js \
+			debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/jquery-ui.js
 
 %:
 	dh $@ --buildsystem=golang --with=golang
