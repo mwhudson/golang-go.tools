@@ -52,5 +52,9 @@ override_dh_auto_install:
 			/usr/share/javascript/jquery-ui/jquery-ui.min.js \
 			debian/tmp/usr/share/gocode/src/golang.org/x/tools/cmd/present/static/jquery-ui.js
 
+override_dh_auto_test:
+	# use short tests where possible (especially to skip tests like TestWebIndex which are very slow)
+	dh_auto_test -- -test.short
+
 %:
 	dh $@ --buildsystem=golang --with=golang
