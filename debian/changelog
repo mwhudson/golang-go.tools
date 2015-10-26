@@ -1,10 +1,10 @@
-golang-golang-x-tools (1:0.0~git20151026.0.0f9d71c-1) UNRELEASED; urgency=medium
+golang-golang-x-tools (1:0.0~git20151026.0.0f9d71c-1) unstable; urgency=medium
 
   * Update to newer upstream snapshot (Closes: #802988)
     - Compiles properly with Go 1.5+
     - No longer installs everything to GOROOT
 
- -- Tianon Gravi <tianon@debian.org>  Mon, 26 Oct 2015 12:52:00 -0700
+ -- Tianon Gravi <tianon@debian.org>  Mon, 26 Oct 2015 15:46:30 -0700
 
 golang-golang-x-tools (1:0.0~git20150716.0.87156cb+dfsg1-4) unstable; urgency=medium
 
