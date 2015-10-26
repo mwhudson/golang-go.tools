@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Incomplete source tree on Android.
+
+// +build !android
+
 package ssa_test
 
 // This file runs the SSA builder in sanity-checking mode on all
@@ -23,6 +27,18 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
+// Skip the set of packages that transitively depend on
+// cmd/internal/objfile, which uses vendoring,
+// which go/loader does not yet support.
+// TODO(adonovan): add support for vendoring and delete this.
+var skip = map[string]bool{
+	"cmd/addr2line":        true,
+	"cmd/internal/objfile": true,
+	"cmd/nm":               true,
+	"cmd/objdump":          true,
+	"cmd/pprof":            true,
+}
+
 func bytesAllocated() uint64 {
 	runtime.GC()
 	var stats runtime.MemStats
@@ -39,9 +55,11 @@ func TestStdlib(t *testing.T) {
 	ctxt := build.Default // copy
 	ctxt.GOPATH = ""      // disable GOPATH
 	conf := loader.Config{Build: &ctxt}
-	if _, err := conf.FromArgs(buildutil.AllPackages(conf.Build), true); err != nil {
-		t.Errorf("FromArgs failed: %v", err)
-		return
+	for _, path := range buildutil.AllPackages(conf.Build) {
+		if skip[path] {
+			continue
+		}
+		conf.ImportWithTests(path)
 	}
 
 	iprog, err := conf.Load()
@@ -62,7 +80,7 @@ func TestStdlib(t *testing.T) {
 	t2 := time.Now()
 
 	// Build SSA.
-	prog.BuildAll()
+	prog.Build()
 
 	t3 := time.Now()
 	alloc3 := bytesAllocated()

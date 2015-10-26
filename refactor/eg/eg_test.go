@@ -1,3 +1,11 @@
+// Copyright 2015 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// No testdata on Android.
+
+// +build !android
+
 package eg_test
 
 import (
@@ -92,7 +100,7 @@ func Test(t *testing.T) {
 		if strings.HasSuffix(filename, "template") {
 			// a new template
 			shouldFail, _ := info.Pkg.Scope().Lookup("shouldFail").(*types.Const)
-			xform, err = eg.NewTransformer(iprog.Fset, info, *verboseFlag)
+			xform, err = eg.NewTransformer(iprog.Fset, info.Pkg, file, &info.Info, *verboseFlag)
 			if err != nil {
 				if shouldFail == nil {
 					t.Errorf("NewTransformer(%s): %s", filename, err)

@@ -206,6 +206,75 @@ var _ a.T
 `,
 			},
 		},
+
+		// External test packages
+		{
+			ctxt: buildutil.FakeContext(map[string]map[string]string{
+				"foo": {
+					"0.go":      `package foo; type T int`,
+					"0_test.go": `package foo_test; import "foo"; var _ foo.T`,
+				},
+				"baz": {
+					"0_test.go": `package baz_test; import "foo"; var _ foo.T`,
+				},
+			}),
+			from: "foo", to: "bar",
+			want: map[string]string{
+				"/go/src/bar/0.go": `package bar
+
+type T int
+`,
+				"/go/src/bar/0_test.go": `package bar_test
+
+import "bar"
+
+var _ bar.T
+`,
+				"/go/src/baz/0_test.go": `package baz_test
+
+import "bar"
+
+var _ bar.T
+`,
+			},
+		},
+		// package import comments
+		{
+			ctxt: fakeContext(map[string][]string{"foo": {`package foo // import "baz"`}}),
+			from: "foo", to: "bar",
+			want: map[string]string{"/go/src/bar/0.go": `package bar // import "bar"
+`},
+		},
+		{
+			ctxt: fakeContext(map[string][]string{"foo": {`package foo /* import "baz" */`}}),
+			from: "foo", to: "bar",
+			want: map[string]string{"/go/src/bar/0.go": `package bar /* import "bar" */
+`},
+		},
+		{
+			ctxt: fakeContext(map[string][]string{"foo": {`package foo       // import "baz"`}}),
+			from: "foo", to: "bar",
+			want: map[string]string{"/go/src/bar/0.go": `package bar // import "bar"
+`},
+		},
+		{
+			ctxt: fakeContext(map[string][]string{"foo": {`package foo
+// import " this is not an import comment`}}),
+			from: "foo", to: "bar",
+			want: map[string]string{"/go/src/bar/0.go": `package bar
+
+// import " this is not an import comment
+`},
+		},
+		{
+			ctxt: fakeContext(map[string][]string{"foo": {`package foo
+/* import " this is not an import comment */`}}),
+			from: "foo", to: "bar",
+			want: map[string]string{"/go/src/bar/0.go": `package bar
+
+/* import " this is not an import comment */
+`},
+		},
 	}
 
 	for _, test := range tests {
