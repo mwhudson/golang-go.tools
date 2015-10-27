@@ -8,6 +8,11 @@
 
 export DH_VERBOSE := 1
 
+# Exclude "cover" and "vet" since they're included in core as of Go 1.5+
+export DH_GOLANG_EXCLUDES := \
+	golang.org/x/tools/cmd/cover \
+	golang.org/x/tools/cmd/vet
+
 # Install all files into the build GOPATH, not only .go files.
 # This is necessary because go.tools contains golden files that are necessary
 # for running the testsuite.
