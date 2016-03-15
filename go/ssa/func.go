@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package ssa
 
 // This file implements the Function and BasicBlock types.
@@ -11,11 +13,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"strings"
-
-	"golang.org/x/tools/go/types"
 )
 
 // addEdge adds a control-flow graph edge from from to to.

@@ -436,7 +436,7 @@ var Files = map[string]string{
 		{{$output := .Output}}
 		{{with .Play}}
 			<div class="play">
-				<div class="input"><textarea class="code">{{html .}}</textarea></div>
+				<div class="input"><textarea class="code" spellcheck="false">{{html .}}</textarea></div>
 				<div class="output"><pre>{{html $output}}</pre></div>
 				<div class="buttons">
 					<a class="run" title="Run this code [shift-enter]">Run</a>
@@ -504,7 +504,7 @@ var Files = map[string]string{
 
 {{if .Playground}}
 <div id="playground" class="play">
-	<div class="input"><textarea class="code">package main
+	<div class="input"><textarea class="code" spellcheck="false">package main
 
 import "fmt"
 
@@ -842,6 +842,8 @@ function personalizeInstallInstructions() {
   }
   if (os != 'windows') {
     $('#windowsInstructions').hide();
+    $('.testUnix').show();
+    $('.testWindows').hide();
   } else {
     if (ext != 'msi') {
       $('#windowsInstallerInstructions').hide();
@@ -849,6 +851,8 @@ function personalizeInstallInstructions() {
     if (ext != 'zip') {
       $('#windowsZipInstructions').hide();
     }
+    $('.testUnix').hide();
+    $('.testWindows').show();
   }
 
   var download = "https://storage.googleapis.com/golang/" + filename;
@@ -2812,7 +2816,7 @@ a:hover,
 .exampleHeading .text:hover {
 	text-decoration: underline;
 }
-p {
+p, li {
 	max-width: 800px;
 	word-wrap: break-word;
 }
@@ -2874,10 +2878,7 @@ dl {
 	margin: 20px;
 }
 dd {
-	margin: 0;
-}
-dd.indent {
-	margin: 0 20px;
+	margin: 0 0 0 20px;
 }
 dl,
 dd {

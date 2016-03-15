@@ -2,19 +2,21 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package oracle
 
 import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"sort"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/oracle/serial"
 )
 

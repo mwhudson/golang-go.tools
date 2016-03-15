@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package rename
 
 // This file defines the safety checks for each kind of renaming.
@@ -10,9 +12,9 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/loader"
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/refactor/satisfy"
 )
 

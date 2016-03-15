@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package pointer
 
 // This file defines the constraint generation phase.
@@ -13,10 +15,10 @@ package pointer
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/types"
 )
 
 var (

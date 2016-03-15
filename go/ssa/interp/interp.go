@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 // Package ssa/interp defines an interpreter for the SSA
 // representation of Go programs.
 //
@@ -47,12 +49,12 @@ package interp // import "golang.org/x/tools/go/ssa/interp"
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 	"os"
 	"reflect"
 	"runtime"
 
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/types"
 )
 
 type continuation int

@@ -1,16 +1,22 @@
+// Copyright 2014 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// +build go1.5
+
 package eg
 
 import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"log"
 	"os"
 	"reflect"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/exact"
-	"golang.org/x/tools/go/types"
 )
 
 // matchExpr reports whether pattern x matches y.

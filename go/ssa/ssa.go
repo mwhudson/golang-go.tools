@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package ssa
 
 // This package defines a high-level intermediate representation for
@@ -10,11 +12,11 @@ package ssa
 import (
 	"fmt"
 	"go/ast"
+	exact "go/constant"
 	"go/token"
+	"go/types"
 	"sync"
 
-	"golang.org/x/tools/go/exact"
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/go/types/typeutil"
 )
 

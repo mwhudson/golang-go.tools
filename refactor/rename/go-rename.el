@@ -34,6 +34,7 @@
   :type 'string
   :group 'go-rename)
 
+;;;###autoload
 (defun go-rename (new-name &optional force)
   "Rename the entity denoted by the identifier at point, using
 the `gorename' tool. With FORCE, call `gorename' with the
@@ -81,7 +82,6 @@ the `gorename' tool. With FORCE, call `gorename' with the
         ;; failure
         (let ((w (display-buffer (current-buffer))))
           (message "gorename exited")
-          (shrink-window-if-larger-than-buffer w)
           (set-window-point w (point-min)))))))
 
   ;; Reload the modified files, saving line/col.
