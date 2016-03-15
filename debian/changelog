@@ -1,3 +1,10 @@
+golang-golang-x-tools (1:0.0~git20160315.0.f42ec61-1) UNRELEASED; urgency=medium
+
+  * New upstream snapshot. (Closes: #818320)
+    - Passes tests with Go 1.6.
+
+ -- Michael Hudson-Doyle <michael.hudson@canonical.com>  Wed, 16 Mar 2016 10:39:15 +1300
+
 golang-golang-x-tools (1:0.0~git20151026.0.0f9d71c-2) unstable; urgency=medium
 
   * Exclude "cover" and "vet" from being built/installed (Closes: #803130)
