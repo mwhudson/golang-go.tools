@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package ssa
 
 // This file defines utilities for population of method sets.
 
 import (
 	"fmt"
-
-	"golang.org/x/tools/go/types"
+	"go/types"
 )
 
 // MethodValue returns the Function implementing method sel, building

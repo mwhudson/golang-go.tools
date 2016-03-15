@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package ssa
 
 // An optional pass for sanity-checking invariants of the SSA representation.
@@ -9,11 +11,10 @@ package ssa
 
 import (
 	"fmt"
+	"go/types"
 	"io"
 	"os"
 	"strings"
-
-	"golang.org/x/tools/go/types"
 )
 
 type sanity struct {

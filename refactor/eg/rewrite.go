@@ -1,3 +1,9 @@
+// Copyright 2014 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// +build go1.5
+
 package eg
 
 // This file defines the AST rewriting pass.
@@ -8,6 +14,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"os"
 	"reflect"
 	"sort"
@@ -15,7 +22,6 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
-	"golang.org/x/tools/go/types"
 )
 
 // Transform applies the transformation to the specified parsed file,

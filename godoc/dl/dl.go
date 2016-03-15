@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
+// +build appengine
+
 // Package dl implements a simple downloads frontend server.
 //
 // It accepts HTTP POST requests to create a new download metadata entity, and
@@ -21,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -30,7 +33,6 @@ import (
 	"google.golang.org/appengine/log"
 	"google.golang.org/appengine/memcache"
 	"google.golang.org/appengine/user"
-	"google.golang.org/cloud/compute/metadata"
 )
 
 const (
@@ -38,12 +40,6 @@ const (
 	cacheKey      = "download_list_3" // increment if listTemplateData changes
 	cacheDuration = time.Hour
 )
-
-var builderKey string
-
-func init() {
-	builderKey, _ = metadata.ProjectAttributeValue("builder-key")
-}
 
 func RegisterHandlers(mux *http.ServeMux) {
 	mux.Handle("/dl", http.RedirectHandler("/dl/", http.StatusFound))
@@ -53,14 +49,29 @@ func RegisterHandlers(mux *http.ServeMux) {
 }
 
 type File struct {
-	Filename string
-	OS       string
-	Arch     string
-	Version  string
-	Checksum string `datastore:",noindex"`
-	Size     int64  `datastore:",noindex"`
-	Kind     string // "archive", "installer", "source"
-	Uploaded time.Time
+	Filename       string
+	OS             string
+	Arch           string
+	Version        string
+	Checksum       string `datastore:",noindex"` // SHA1; deprecated
+	ChecksumSHA256 string `datastore:",noindex"`
+	Size           int64  `datastore:",noindex"`
+	Kind           string // "archive", "installer", "source"
+	Uploaded       time.Time
+}
+
+func (f File) ChecksumType() string {
+	if f.ChecksumSHA256 != "" {
+		return "SHA256"
+	}
+	return "SHA1"
+}
+
+func (f File) PrettyChecksum() string {
+	if f.ChecksumSHA256 != "" {
+		return f.ChecksumSHA256
+	}
+	return f.Checksum
 }
 
 func (f File) PrettyOS() string {
@@ -336,10 +347,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad user", http.StatusForbidden)
 		return
 	}
-	if builderKey == "" {
-		http.Error(w, "no builder-key found in project metadata", http.StatusInternalServerError)
-		return
-	}
 	if r.FormValue("key") != userKey(c, user) {
 		http.Error(w, "bad key", http.StatusForbidden)
 		return
@@ -393,7 +400,7 @@ func validUser(user string) bool {
 }
 
 func userKey(c context.Context, user string) string {
-	h := hmac.New(md5.New, []byte(builderKey))
+	h := hmac.New(md5.New, []byte(secret(c)))
 	h.Write([]byte("user-" + user))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
@@ -444,7 +451,61 @@ var prettyStrings = map[string]string{
 	"386":   "32-bit",
 	"amd64": "64-bit",
 
+	"armv6l": "ARMv6",
+
 	"archive":   "Archive",
 	"installer": "Installer",
 	"source":    "Source",
+}
+
+// Code below copied from x/build/app/key
+
+var theKey struct {
+	sync.RWMutex
+	builderKey
+}
+
+type builderKey struct {
+	Secret string
+}
+
+func (k *builderKey) Key(c context.Context) *datastore.Key {
+	return datastore.NewKey(c, "BuilderKey", "root", 0, nil)
+}
+
+func secret(c context.Context) string {
+	// check with rlock
+	theKey.RLock()
+	k := theKey.Secret
+	theKey.RUnlock()
+	if k != "" {
+		return k
+	}
+
+	// prepare to fill; check with lock and keep lock
+	theKey.Lock()
+	defer theKey.Unlock()
+	if theKey.Secret != "" {
+		return theKey.Secret
+	}
+
+	// fill
+	if err := datastore.Get(c, theKey.Key(c), &theKey.builderKey); err != nil {
+		if err == datastore.ErrNoSuchEntity {
+			// If the key is not stored in datastore, write it.
+			// This only happens at the beginning of a new deployment.
+			// The code is left here for SDK use and in case a fresh
+			// deployment is ever needed.  "gophers rule" is not the
+			// real key.
+			if !appengine.IsDevAppServer() {
+				panic("lost key from datastore")
+			}
+			theKey.Secret = "gophers rule"
+			datastore.Put(c, theKey.Key(c), &theKey.builderKey)
+			return theKey.Secret
+		}
+		panic("cannot load builder key: " + err.Error())
+	}
+
+	return theKey.Secret
 }

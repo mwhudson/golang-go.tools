@@ -27,7 +27,7 @@ import (
 const (
 	repoURL      = "https://go.googlesource.com/"
 	metaURL      = "https://go.googlesource.com/?b=master&format=JSON"
-	startTimeout = 5 * time.Minute
+	startTimeout = 10 * time.Minute
 )
 
 func main() {
@@ -45,6 +45,9 @@ func main() {
 	p := &Proxy{builder: b}
 	go p.run()
 	http.Handle("/", p)
+	http.HandleFunc("/_ah/health", p.serveHealthCheck)
+
+	log.Print("Starting up")
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		p.stop()
@@ -89,14 +92,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, s, http.StatusInternalServerError)
 		return
 	}
-	if r.URL.Path == "/_ah/health" {
-		if err := p.builder.HealthCheck(p.hostport); err != nil {
-			http.Error(w, "Health check failde: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprintln(w, "OK")
-		return
-	}
 	proxy.ServeHTTP(w, r)
 }
 
@@ -104,6 +99,25 @@ func (p *Proxy) serveStatus(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	fmt.Fprintf(w, "side=%v\ncurrent=%v\nerror=%v\n", p.side, p.cur, p.err)
+}
+
+func (p *Proxy) serveHealthCheck(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// NOTE: Status 502, 503, 504 are the only status codes that signify an unhealthy app.
+	// So long as this handler returns one of those codes, this instance will not be sent any requests.
+	if p.proxy == nil {
+		log.Printf("Health check: not ready")
+		http.Error(w, "Not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := p.builder.HealthCheck(p.hostport); err != nil {
+		log.Printf("Health check failed: %v", err)
+		http.Error(w, "Health check failed", http.StatusServiceUnavailable)
+		return
+	}
+	io.WriteString(w, "ok")
 }
 
 // run runs in its own goroutine.
@@ -165,6 +179,9 @@ func (p *Proxy) poll() {
 			}
 		}()
 		err = waitReady(p.builder, hostport)
+		if err != nil {
+			cmd.Process.Kill()
+		}
 	}
 
 	p.mu.Lock()

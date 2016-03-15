@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 // No testdata on Android.
 
 // +build !android
@@ -17,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
+	"go/types"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -29,7 +32,6 @@ import (
 	"golang.org/x/tools/go/pointer"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -520,6 +522,9 @@ func checkWarningExpectation(prog *ssa.Program, e *expectation, warnings []point
 }
 
 func TestInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode; this test requires tons of memory; golang.org/issue/14113")
+	}
 	ok := true
 
 	wd, err := os.Getwd()

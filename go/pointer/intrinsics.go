@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package pointer
 
 // This package defines the treatment of intrinsics, i.e. library
@@ -17,9 +19,9 @@ package pointer
 
 import (
 	"fmt"
+	"go/types"
 
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/types"
 )
 
 // Instances of 'intrinsic' generate analysis constraints for calls to

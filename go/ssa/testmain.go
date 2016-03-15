@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package ssa
 
 // CreateTestMainPackage synthesizes a main package that runs all the
@@ -10,13 +12,12 @@ package ssa
 
 import (
 	"go/ast"
+	exact "go/constant"
 	"go/token"
+	"go/types"
 	"os"
 	"sort"
 	"strings"
-
-	"golang.org/x/tools/go/exact"
-	"golang.org/x/tools/go/types"
 )
 
 // FindTests returns the list of packages that define at least one Test,
@@ -240,6 +241,12 @@ func testMainSlice(fn *Function, testfuncs []*Function, slice types.Type) Value 
 	tPtrString := types.NewPointer(tString)
 	tPtrElem := types.NewPointer(tElem)
 	tPtrFunc := types.NewPointer(funcField(slice))
+
+	// TODO(adonovan): fix: populate the
+	// testing.InternalExample.Output field correctly so that tests
+	// work correctly under the interpreter.  This requires that we
+	// do this step using ASTs, not *ssa.Functions---quite a
+	// redesign.  See also the fake runExample in go/ssa/interp.
 
 	// Emit: array = new [n]testing.InternalTest
 	tArray := types.NewArray(tElem, int64(len(testfuncs)))

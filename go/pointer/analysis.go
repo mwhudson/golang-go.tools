@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build go1.5
+
 package pointer
 
 // This file defines the main datatypes and Analyze function of the pointer analysis.
@@ -9,6 +11,7 @@ package pointer
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"reflect"
@@ -18,7 +21,6 @@ import (
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/types"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
